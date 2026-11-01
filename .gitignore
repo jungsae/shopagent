@@ -1,0 +1,13 @@
+.venv/
+runs/
+docs/failfix-*
+upstage.env
+*.env
+.env*
+*.pem
+*.key
+*secret*
+*token*
+__pycache__/
+.ipynb_checkpoints/
+*.pyc

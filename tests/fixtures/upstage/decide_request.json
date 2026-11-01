@@ -1,0 +1,18 @@
+{
+  "model": "solar-decide",
+  "state": "human: Where is my order?",
+  "questions": {
+    "route": {
+      "type": "choice",
+      "instructions": "Choose the agent for this conversation.",
+      "criteria": {
+        "product": "Product information",
+        "order_delivery": "Orders and delivery",
+        "refund_exchange": "Refunds and exchanges",
+        "payment": "Payments",
+        "qna": "General questions",
+        "human": "Human support"
+      }
+    }
+  }
+}
