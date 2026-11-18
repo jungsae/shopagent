@@ -77,7 +77,7 @@ v2_required_calls는 필수 호출이고 v2_reference_calls는 성공에 영향 
 
 reason 필수 대상은 single-18 T0와 single-34/35/36 T0 및 chain-01/03/05 T1의 단순변심, single-19 T0 및 chain-02/04/06 T1의 상품불량이다. 사유가 없는 요청은 사유 게이트를 추가하지 않는다.
 
-정책 매핑은 order_delivery=P04/P05/P08/P09, refund_exchange=P01/P02/P03/P09/P10, payment=P06/P07/P12, qna=P01..P12, product=없음, human=P11, supervisor=없음이다. get_policy와 같은 DB 원문을 주입하고 policy_context에 방문 노드별 ID를 남긴다. 기존 v1 프롬프트 키는 바뀌지 않는다. v2 변형에서 제거한 정확한 정책 문장은 [README Step 2](README.md#v2-step-2-조회-게이트와-정책확인-카드)에 열거한다.
+정책 매핑은 order_delivery=P04/P05/P08/P09, refund_exchange=P01/P02/P03/P09/P10, payment=P06/P07/P12, qna=P01..P12, product=없음, human=P11, 라우터(router)=없음이다. get_policy와 같은 DB 원문을 주입하고 policy_context에 방문 노드별 ID를 남긴다. 기존 v1 프롬프트 키는 바뀌지 않는다. v2 변형에서 제거한 정확한 정책 문장은 [README Step 2](README.md#v2-step-2-조회-게이트와-정책확인-카드)에 열거한다.
 
 여섯 실행 행동은 모델 원문 뒤에 DB 상품명·옵션·수량·금액·백엔드 DRY RUN 비용/환불 또는 주소/수거일 확인 카드를 붙인다. confirmation_card는 별도 저장하고 pending.message에는 전체 문구를 저장한다. 복제 DB의 계산은 agent 도구 호출·횟수에 들어가지 않는다.
 

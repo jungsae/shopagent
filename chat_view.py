@@ -251,7 +251,7 @@ const obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {};
 const arr = x => Array.isArray(x) ? x : [];
 const pretty = x => typeof x === 'string' ? x : JSON.stringify(x, null, 2) ?? '미저장';
 const compact = x => typeof x === 'string' ? x : JSON.stringify(x) ?? '';
-const nodes = {supervisor:'총괄', order_delivery:'주문·배송', refund_exchange:'반품·교환',
+const nodes = {router:'라우터', supervisor:'라우터', order_delivery:'주문·배송', refund_exchange:'반품·교환',
   payment:'결제', qna:'문의', product:'상품', human:'상담원'};
 const verdicts = {yes:'동의', no:'거절', changed:'변경', unclear:'불명확'};
 const decisions = {approve:'승인', reject:'거절', change:'변경'};
@@ -356,7 +356,7 @@ function renderCalls(parent, t) {
   if (!calls.length) return;
   const block = detail(parent, '조회 도구 ' + tools.length + '건 · 전체 호출 ' + calls.length + '건');
   for (const c of calls) {
-    const handoff = c.kind === 'handoff' || c.name === 'transfer_back_to_supervisor';
+    const handoff = c.kind === 'handoff' || ['transfer_back_to_router', 'transfer_back_to_supervisor'].includes(c.name);
     const d = detail(block, (handoff ? '↩ 담당 이전: ' : '🔧 ') + actionText(c));
     const summary = d.firstChild;
     if (c.prefetched) badge(summary, '사전 조회');

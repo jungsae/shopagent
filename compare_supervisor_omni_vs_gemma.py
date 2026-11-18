@@ -39,7 +39,7 @@ def collect_decisions(source, dataset):
             expected = list(expected) if isinstance(expected, list) and expected else None
             position = 0
             for call in turn.get("llm_calls", []):
-                if call.get("node") != "supervisor":
+                if call.get("node") not in ("router", "supervisor"):
                     continue
                 calls = call.get("tool_calls") or []
                 name = calls[0].get("name", "") if calls else ""
@@ -244,7 +244,7 @@ def markdown(result):
     lines += [describe(r) for r in metrics["low_confidence"]] or ["해당 사례 없음."]
     lines += ["", "## 해석할 때 주의할 점", "",
               "- expect.route는 턴 전체에 정의된다. 채점의 route_correct는 턴의 마지막 경로, initial_route_correct는 첫 경로와 비교한다. 여기서는 각 supervisor 선택을 비교하므로 재라우팅이 기대 경로와 달라도 타당할 수 있다.",
-              "- Omni는 첫 시스템 메시지를 빼고 마지막 10개 메시지의 종류와 content만 텍스트로 본다. 도구 호출 형식과 저장된 시스템 프롬프트 전체는 전달되지 않는다. 현재 data/prompts.json의 v2_supervisor와 routes를 사용한다.",
+              "- Omni는 첫 시스템 메시지를 빼고 마지막 10개 메시지의 종류와 content만 텍스트로 본다. 도구 호출 형식과 저장된 시스템 프롬프트 전체는 전달되지 않는다. 현재 data/prompts.json의 v2_router와 routes를 사용한다.",
               "- 문맥 한도는 2048이다. 한도 초과 등 개별 오류는 기록하고 계속한다. 기대 경로가 없으면 정확도 분모에서 제외한다. Omni 오류는 Omni 정확도와 일치율 분모에서 제외하고, Gemma 정확도에는 시도한 원본 선택을 포함한다.",
               "- --limit 제외 및 원본 미완료 호출은 비교 분모에서 제외한다. 지연은 성공한 호출의 backend 판단 전체 시간(HTTP와 관측 포함)이다. observer_ms는 별도 기록한다. 예열은 하지 않는다. 저장된 Gemma 지연은 실행 환경이 달라 직접적인 속도 비교에는 한계가 있다.",
               "- 현재 Jev 백엔드는 토큰 수를 노출하지 않아 prompt_tokens가 null일 수 있다. 임베딩과 전체 요청 메시지는 저장하지 않는다.",

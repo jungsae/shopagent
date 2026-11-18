@@ -77,7 +77,7 @@ class ChatClientTests(unittest.TestCase):
             chat.return_value.stream.side_effect = lambda messages: iter([chunk])
             llm = LocalLLM(config=CONFIGS["solar-pro4"], http_client=Mock())
             agents = Agents(llm, "C01")
-            for node in ("supervisor", "product", "order_delivery", "refund_exchange", "payment", "qna", "human",
+            for node in ("router", "supervisor", "product", "order_delivery", "refund_exchange", "payment", "qna", "human",
                          "consent_judge", "simulated_customer"):
                 with self.subTest(node=node):
                     answer, timing = agents.call([HumanMessage(content="인사")], [handoff("transfer_to_product")], node)
@@ -88,5 +88,5 @@ class ChatClientTests(unittest.TestCase):
                     self.assertNotIn("cache_prompt", timing["request"])
                     self.assertNotIn("test-key", str(timing))
                     options = chat.return_value.bind_tools.call_args.kwargs
-                    self.assertEqual(options["tool_choice"], "required" if node in ("supervisor", "consent_judge", "simulated_customer") else "auto")
+                    self.assertEqual(options["tool_choice"], "required" if node in ("router", "supervisor", "consent_judge", "simulated_customer") else "auto")
                     self.assertFalse(options["parallel_tool_calls"])

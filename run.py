@@ -64,7 +64,7 @@ def parse_args(argv=None):
 def latency_split(turn):
     result = {"turn_total_ms": turn.get("total_ms"), "turn_to_final_reply_ttft_ms": turn.get("turn_to_final_reply_ttft_ms")}
     for role in ("judge", "answer"):
-        calls = [c for c in turn.get("llm_calls", []) if c.get("node") != "simulated_customer" and (c.get("node") in ("supervisor", "consent_judge")) == (role == "judge")]
+        calls = [c for c in turn.get("llm_calls", []) if c.get("node") != "simulated_customer" and (c.get("node") in ("router", "supervisor", "consent_judge")) == (role == "judge")]
         result[role] = {"call_count": len(calls), "total_ms": sum(c["total_ms"] for c in calls) if all(c.get("total_ms") is not None for c in calls) else None, "ttft_ms": calls[0].get("ttft_ms") if role == "judge" and calls else turn.get("final_reply_ttft_ms") if role == "answer" else None, "calls": [{key: c.get(key) for key in ("node", "ttft_ms", "content_ttft_ms", "total_ms", "observer_ms", "status")} for c in calls]}
     customer_calls = [call for call in turn.get("llm_calls", []) if call.get("node") == "simulated_customer"]
     if customer_calls:

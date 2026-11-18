@@ -35,7 +35,7 @@ class LocalLLM:
         first = None
         content_first = None
         combined = None
-        model = self.client.bind_tools(tools, tool_choice="required" if node in ("supervisor", "consent_judge", "simulated_customer") else "auto", parallel_tool_calls=False) if tools else self.client
+        model = self.client.bind_tools(tools, tool_choice="required" if node in ("router", "supervisor", "consent_judge", "simulated_customer") else "auto", parallel_tool_calls=False) if tools else self.client
         for chunk in model.stream(messages):
             elapsed = (time.perf_counter() - start) * 1000
             if first is None and (chunk.content or chunk.tool_call_chunks):
@@ -78,7 +78,7 @@ class Agents:
         return value, timing
 
     def call(self, messages, tools, node):
-        request = {"messages": [m.model_dump(mode="json") for m in messages], "tools": tools, "tool_choice": "required" if node in ("supervisor", "consent_judge", "simulated_customer") else ("none" if not tools else "auto"), "parallel_tool_calls": False, "temperature": 0, "max_tokens": 1024, "cache_prompt": False}
+        request = {"messages": [m.model_dump(mode="json") for m in messages], "tools": tools, "tool_choice": "required" if node in ("router", "supervisor", "consent_judge", "simulated_customer") else ("none" if not tools else "auto"), "parallel_tool_calls": False, "temperature": 0, "max_tokens": 1024, "cache_prompt": False}
         if getattr(self.llm, "remote", False) is True:
             request.pop("cache_prompt")
             request["model"] = self.llm.client.model_name
@@ -99,16 +99,17 @@ class Agents:
         return [SystemMessage(content=text), *history]
 
     def supervise(self, history, turn, v2=False):
+        node = "router" if v2 else "supervisor"
         if self.backend is None:
-            message, timing = self.call(self.messages("supervisor", history, v2=v2), [handoff("transfer_to_" + agent) for agent in AGENTS], "supervisor")
+            message, timing = self.call(self.messages(node, history, v2=v2), [handoff("transfer_to_" + agent) for agent in AGENTS], node)
             calls = message.tool_calls
             if len(calls) != 1 or calls[0]["name"] not in ["transfer_to_" + agent for agent in AGENTS] or calls[0]["args"]:
-                error = ValueError("Supervisor must call one transfer_to_<agent> without arguments")
+                error = ValueError(f"{node.capitalize()} must call one transfer_to_<agent> without arguments")
                 error.shop_llm_call = timing
                 raise error
             return calls[0]["name"][12:], message, timing
         text = "\n".join(f"{m.type}: {m.content}" for m in history[-10:])
-        question = {"type": "choice", "instructions": self.prompts["v2_supervisor" if v2 else "supervisor"], "options": self.prompts["routes"]}
+        question = {"type": "choice", "instructions": self.prompts["v2_" + node if v2 else node], "options": self.prompts["routes"]}
         item = {"id": "route_" + str(turn), "text": text, "questions": {"route": question}}
         def decide():
             start = time.perf_counter()
@@ -119,8 +120,8 @@ class Agents:
             if not dm.valid_probs(question, probabilities):
                 raise ValueError("Invalid route probability distribution")
             route = max(probabilities, key=probabilities.get)
-            return route, {"node": "supervisor", "started": started, "finished": datetime.now(timezone.utc).isoformat(), "total_ms": (time.perf_counter() - start) * 1000, "observer_ms": getattr(self.backend.client, "observer_ms", 0) - observer_before, "ttft_ms": None, "tokens": None, "probabilities": probabilities, "details": details}
-        route, timing = self.observe("supervisor", {"decision_item": item}, decide)
+            return route, {"node": node, "started": started, "finished": datetime.now(timezone.utc).isoformat(), "total_ms": (time.perf_counter() - start) * 1000, "observer_ms": getattr(self.backend.client, "observer_ms", 0) - observer_before, "ttft_ms": None, "tokens": None, "probabilities": probabilities, "details": details}
+        route, timing = self.observe(node, {"decision_item": item}, decide)
         return route, None, timing
 
     def respond(self, agent, history):

@@ -13,7 +13,7 @@ import route_answer as ra
 import runtime
 
 REFERENCE_DATE = "2026-10-22"
-DATA_VERSION = "2026-11-17-tool-consent-interrupt"
+DATA_VERSION = "2026-11-18-router-rename"
 AGENTS = ("product", "order_delivery", "refund_exchange", "payment", "qna", "human")
 
 

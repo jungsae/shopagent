@@ -347,7 +347,7 @@ def grade_turn(scenario, index, row, initial, previous_rows, previous_calls):
         if "v2_reference_calls" in expected:
             result.update(reference_call_metrics(calls, expected["v2_reference_calls"], proposal_consent=True))
         # Provenance checks inspect node identities and state, never reply content.
-        answer_nodes = [c.get("node") for c in row.get("llm_calls", []) if c.get("node") not in ("supervisor", "consent_judge", "decide_action", "simulated_customer")]
+        answer_nodes = [c.get("node") for c in row.get("llm_calls", []) if c.get("node") not in ("router", "supervisor", "consent_judge", "decide_action", "simulated_customer")]
         executed = any(c["name"] in IRREVERSIBLE for c in calls)
         violations["report_execution_mismatch"] = int(not tool_interrupt and (
             ("report" in answer_nodes and not executed)

@@ -56,7 +56,7 @@ class Turn:
     steps keeps the old model/routing/tools-round count for saved-result readers.
     tool_count includes domain functions, but excludes routing,
     handoffs, order prefetch and validation errors that never execute.
-    llm_calls remains the timing-record list, including supervisor routing.
+    llm_calls remains the timing-record list, including router routing.
     """
 
     def __init__(self, agents, shop, turn, emit, pending, assist):
@@ -219,7 +219,7 @@ def make_tools(ctx, scope):
         return run
 
     tools = [tool(schema, domain(schema["function"]["name"])) for schema in schemas(scope)]
-    return tools + [tool(handoff("transfer_back_to_supervisor"), lambda **arguments: "")]
+    return tools + [tool(handoff("transfer_back_to_router"), lambda **arguments: "")]
 
 
 class TurnMiddleware(AgentMiddleware):
@@ -304,13 +304,13 @@ class TurnMiddleware(AgentMiddleware):
                 return ToolMessage(content="한 응답에서는 첫 번째 실행 요청만 확인할 수 있습니다. 추가 요청은 실행하지 않았습니다.", tool_call_id=call["id"], name=name, status="error")
         if ctx.loop_limit:
             return answer({"error": "tool call limit reached"})
-        if name != "transfer_back_to_supervisor" and ctx.tool_count >= MAX_TOOL_CALLS:
+        if name != "transfer_back_to_router" and ctx.tool_count >= MAX_TOOL_CALLS:
             ctx.loop_limit = ctx.tools_ran = True
             return answer({"error": "tool call limit reached"})
-        if name == "transfer_back_to_supervisor":
+        if name == "transfer_back_to_router":
             if ctx.transfers >= MAX_TRANSFER_BACK_PER_TURN or len(message.tool_calls) != 1 or arguments:
                 ctx.loop_limit = True
-                output = {"error": f"transfer_back_to_supervisor allowed up to {MAX_TRANSFER_BACK_PER_TURN} times per turn, alone, without arguments"}
+                output = {"error": f"transfer_back_to_router allowed up to {MAX_TRANSFER_BACK_PER_TURN} times per turn, alone, without arguments"}
             else:
                 ctx.transfers += 1
                 ctx.transfer = True
@@ -432,7 +432,7 @@ def build_graph(agents, checkpointer, shop):
                     ctx.emit("node_end", node=name, status=status, started=started, finished=datetime.now(timezone.utc).isoformat(), total_ms=(time.perf_counter() - start) * 1000)
         return visit
 
-    def supervisor(state, config):
+    def router(state, config):
         route, message, timing = ctx.agents.supervise(state["messages"], ctx.turn, v2=True)
         ctx.llm_calls.append(timing)
         ctx.agent = route
@@ -482,23 +482,23 @@ def build_graph(agents, checkpointer, shop):
     def after_agent(state):
         ctx.check_limits()
         if ctx.transfer and not ctx.loop_limit:
-            return "supervisor"
+            return "router"
         return "finish"
 
     def finish(state, config):
         return {}
 
     builder = StateGraph(State)
-    builder.add_node("supervisor", observed("supervisor", supervisor), destinations=("escalate", *[a for a in AGENTS if a != "human"]))
+    builder.add_node("router", observed("router", router), destinations=("escalate", *[a for a in AGENTS if a != "human"]))
     builder.add_node("escalate", observed("escalate", escalate, "human"))
     builder.add_edge("escalate", "finish")
     builder.add_node("finish", observed("finish", finish))
     builder.add_edge("finish", END)
-    builder.add_edge(START, "supervisor")
+    builder.add_edge(START, "router")
     for scope in AGENTS:
         if scope != "human":
             builder.add_node(scope, observed(scope, specialist(scope), scope))
-            paths = {name: name for name in ("supervisor", "finish")}
+            paths = {name: name for name in ("router", "finish")}
             builder.add_conditional_edges(scope, after_agent, path_map=paths)
     return builder.compile(checkpointer=checkpointer)
 
@@ -575,7 +575,7 @@ class ScenarioGraph:
         final["messages"] = ctx.interrupted_messages or result["messages"]
         final["total_ms"] = (time.perf_counter() - start) * 1000
         calls = final["llm_calls"]
-        answer_index = next((i for i in range(len(calls) - 1, -1, -1) if calls[i]["node"] not in ("supervisor", "consent_judge")), None)
+        answer_index = next((i for i in range(len(calls) - 1, -1, -1) if calls[i]["node"] not in ("router", "consent_judge")), None)
         answer = calls[answer_index] if answer_index is not None else {}
         final["final_reply_ttft_ms"] = answer.get("content_ttft_ms") if final["agent"] != "human" and not final["grounding_failed"] and final["reply"] else None
         final["turn_to_final_reply_ttft_ms"] = final["total_ms"] - sum(c["total_ms"] for c in calls[answer_index:]) + final["final_reply_ttft_ms"] if final["final_reply_ttft_ms"] is not None else None

@@ -57,6 +57,15 @@ def routed(agent):
 
 
 class SupervisorReplayTests(unittest.TestCase):
+    def test_saved_router_and_supervisor_decisions_are_equivalent(self):
+        decisions = []
+        for node in ("supervisor", "router"):
+            call = {"node": node, "status": "complete", "tool_calls": [{"name": "transfer_to_product"}]}
+            source = {"scenarios": [{"id": "single-01", "turns": [{"llm_calls": [call, call]}]}]}
+            decisions.append([row for row, _ in supervisor_compare.collect_decisions(source, DATA)])
+        self.assertEqual(decisions[0], decisions[1])
+        self.assertEqual([row["position_in_turn"] for row in decisions[1]], ["initial", "reroute"])
+
     def test_saved_history_matches_live_supervise_text_and_window(self):
         backend = SimpleNamespace(client=SimpleNamespace(observer_ms=0), decide=Mock())
         agents = Agents(None, "C01", backend)
@@ -79,7 +88,7 @@ class SupervisorReplayTests(unittest.TestCase):
                 captured = backend.decide.call_args.args[0]
                 self.assertEqual(captured["text"], "\n".join(f"{m.type}: {m.content}" for m in original[-10:]))
                 self.assertNotIn("제거할 첫 시스템 메시지", captured["text"])
-                self.assertEqual(captured["questions"]["route"]["instructions"], agents.prompts["v2_supervisor"])
+                self.assertEqual(captured["questions"]["route"]["instructions"], agents.prompts["v2_router"])
                 self.assertEqual((route, captured["id"]), ("product", "route_7"))
                 self.assertEqual(request, before)
         self.assertEqual(restored[-4].tool_calls, long_history[-4].tool_calls)
@@ -697,7 +706,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("6000원", BASE["policies"]["P10"]["text"])
         self.assertEqual(BASE["data_version"], "2026-11-13-api")
         self.assertEqual(DATA["data_version"], "2026-11-17-allowed-routes-clarify-outcome")
-        self.assertEqual(DATA_VERSION, "2026-11-17-tool-consent-interrupt")
+        self.assertEqual(DATA_VERSION, "2026-11-18-router-rename")
         for oid, order in BASE["orders"].items():
             self.assertEqual((order["extra_charge"], BASE["payments"][oid]["pending_extra_charge"]), (0, 0))
             if order["status"] == "취소":
@@ -1213,6 +1222,15 @@ def outline(rows):
 
 
 class GraphV2Tests(unittest.TestCase):
+    def test_router_node_is_v2_only(self):
+        agents, shop = Agents(RecordingStub([]), "C01"), Shop(BASE, "C01")
+        v1 = build_graph(agents, shop, 0).get_graph()
+        v2 = graph_v2.ScenarioGraph(agents, shop).graph.get_graph()
+        self.assertIn("router", v2.nodes)
+        self.assertNotIn("supervisor", v2.nodes)
+        self.assertIn("supervisor", v1.nodes)
+        self.assertNotIn("router", v1.nodes)
+
     def one_turn(self, graph, responses, user="문의", history=None, assist=True, customer="C01"):
         stub = RecordingStub([*responses, decision_none()] if graph == "v2" else responses)
         shop = Shop(BASE, customer)
@@ -1227,10 +1245,19 @@ class GraphV2Tests(unittest.TestCase):
         return result, shop, stub
 
     def assert_same_as_v1(self, make_responses, user="문의", history=None):
-        old, old_shop, old_stub = self.one_turn("v1", make_responses(), user, history)
+        old_responses = copy.deepcopy(make_responses())
+        for response in old_responses:
+            for call in response.tool_calls:
+                if call["name"] == "transfer_back_to_router":
+                    call["name"] = "transfer_back_to_supervisor"
+        old, old_shop, old_stub = self.one_turn("v1", old_responses, user, history)
         new, new_shop, new_stub = self.one_turn("v2", make_responses(), user, history)
         rows = lambda result, shop: [{**result, "calls": shop.trace}]
         old_outline, new_outline = outline(rows(old, old_shop)), outline(rows(new, new_shop))
+        for row in old_outline:
+            row["calls"] = [(kind, name.replace("transfer_back_to_supervisor", "transfer_back_to_router"), arguments,
+                             output.replace("transfer_back_to_supervisor", "transfer_back_to_router"), changes)
+                            for kind, name, arguments, output, changes in row["calls"]]
         # v2 excludes handoffs, scope errors and blocked calls from tool_count.
         for row in old_outline + new_outline:
             row.pop("tool_count")
@@ -1238,7 +1265,8 @@ class GraphV2Tests(unittest.TestCase):
         self.assertEqual(old_outline, new_outline)
         self.assertEqual(new["tool_count"], sum(c["kind"] == "tool" and not c.get("scope_error") and not c.get("prefetched") for c in new_shop.trace))
         # v2 adds its own consent prompt/tools and removes rejected AI answers.
-        self.assertEqual(old_stub.nodes, [n for n in new_stub.nodes if n != "decide_action"])
+        self.assertEqual(["router" if n == "supervisor" else n for n in old_stub.nodes],
+                         [n for n in new_stub.nodes if n != "decide_action"])
         self.assertEqual(old_shop.db, new_shop.db)
         return new, new_shop, new_stub
 
@@ -1249,22 +1277,22 @@ class GraphV2Tests(unittest.TestCase):
             with self.subTest(scope=scope):
                 ctx = graph_v2.Turn(Agents(Stub([]), "C01"), Shop(BASE, "C01"), 0, None, None, False)
                 tools = graph_v2.make_tools(ctx, scope)
-                self.assertEqual([convert_to_openai_tool(tool) for tool in tools], schemas(scope) + [handoff("transfer_back_to_supervisor")])
+                self.assertEqual([convert_to_openai_tool(tool) for tool in tools], schemas(scope) + [handoff("transfer_back_to_router")])
 
     def test_route_tool_loop_matches_v1_and_keeps_result_keys(self):
         def responses():
             return [routed("product"), message("", ("get_product", {"product_id": "S01"})), message("코튼 티셔츠는 30000원입니다.")]
         result, shop, stub = self.assert_same_as_v1(responses, "S01 가격")
-        self.assertEqual((result["routes"], result["tool_count"], result["steps"], stub.nodes), (["product"], 1, 4, ["supervisor", "product", "product"]))
+        self.assertEqual((result["routes"], result["tool_count"], result["steps"], stub.nodes), (["product"], 1, 4, ["router", "product", "product"]))
         old, _, _ = self.one_turn("v1", responses(), "S01 가격")
         self.assertEqual(set(old) - {"messages", "pending"}, set(result) - {"messages", "pending", "consent_mode", "approval_state", "model_call_count", "limit_reached", "limit_reached_on", "blocked_attempts", "pending_at_start", "pending_events", "consent_judgment", "policy_context", "order_context", "confirmation_card"})
 
 
     def test_compiled_graph_exact_edges_and_reachability(self):
         graph = graph_v2.ScenarioGraph(Agents(RecordingStub([]), "C01"), Shop(BASE, "C01")).graph.get_graph()
-        expected = {("__start__", "supervisor"), ("escalate", "finish"), ("finish", "__end__")}
-        expected |= {("supervisor", scope) for scope in ("product", "order_delivery", "refund_exchange", "payment", "qna", "escalate")}
-        expected |= {(scope, target) for scope in SCOPES if scope != "human" for target in ("supervisor", "finish")}
+        expected = {("__start__", "router"), ("escalate", "finish"), ("finish", "__end__")}
+        expected |= {("router", scope) for scope in ("product", "order_delivery", "refund_exchange", "payment", "qna", "escalate")}
+        expected |= {(scope, target) for scope in SCOPES if scope != "human" for target in ("router", "finish")}
         self.assertEqual({(e.source, e.target) for e in graph.edges}, expected)
         self.assertFalse({"decide_action", "report", "await_consent", "execute", "consent_judge"} & graph.nodes.keys())
         self.assertNotIn("decide_action", (ROOT / "shop/graph_v2.py").read_text())
@@ -1356,10 +1384,10 @@ class GraphV2Tests(unittest.TestCase):
                 self.assertEqual(result["reply"], "" if exceed else "확인했습니다.")
                 self.assertTrue(all(c.get("scope_error") for c in shop.trace))
 
-    def test_supervisor_and_tools_round_do_not_consume_budget(self):
+    def test_router_and_tools_round_do_not_consume_budget(self):
         result, _, stub = self.one_turn("v2", [routed("order_delivery"), calls_message(("get_order", {"order_id": "O001"})), message("확인했습니다.")], assist=False)
         self.assertEqual((result["tool_count"], result["model_call_count"], result["steps"]), (1, 2, 4))
-        self.assertEqual(stub.nodes, ["supervisor", "order_delivery", "order_delivery"])
+        self.assertEqual(stub.nodes, ["router", "order_delivery", "order_delivery"])
         self.assertEqual((result["limit_reached"], result["limit_reached_on"], result["loop_limit"]), (False, [], False))
 
 
@@ -1392,11 +1420,11 @@ class GraphV2Tests(unittest.TestCase):
         self.assertEqual(len(replies), 50)
         self.assertIn("tool call limit reached", replies[0].content)
         self.assertTrue(all(m.status == "error" and "추가 요청은 실행하지 않았습니다" in m.content for m in replies[1:]))
-        self.assertEqual(stub.nodes, ["supervisor", "order_delivery"])
+        self.assertEqual(stub.nodes, ["router", "order_delivery"])
 
     def test_transfers_keep_both_budgets_and_allow_exact_maxima(self):
         call = ("get_order", {"order_id": "O001"})
-        transfer = ("transfer_back_to_supervisor", {})
+        transfer = ("transfer_back_to_router", {})
         for transfers in (1, 3):
             with self.subTest(transfers=transfers):
                 if transfers == 1:
@@ -1407,12 +1435,12 @@ class GraphV2Tests(unittest.TestCase):
                     responses += [routed("order_delivery"), calls_message(call, call, start=3), calls_message(call, call, start=5), calls_message(call, call, start=7), message("확인했습니다.")]
                 result, shop, stub = self.one_turn("v2", responses, assist=False)
                 self.assertEqual((result["tool_count"], result["model_call_count"], result["transfers"]), (6, 7, transfers))
-                self.assertEqual(stub.nodes.count("supervisor"), transfers + 1)
+                self.assertEqual(stub.nodes.count("router"), transfers + 1)
                 self.assertEqual(sum(c["kind"] == "tool" and not c.get("prefetched") for c in shop.trace), 6)
                 self.assertEqual((result["loop_limit"], result["limit_reached_on"]), (False, ["tool_count"]))
 
     def test_fourth_transfer_still_fails_without_consuming_tool_budget(self):
-        responses = [item for i in range(4) for item in (routed("order_delivery"), calls_message(("transfer_back_to_supervisor", {}), start=i))]
+        responses = [item for i in range(4) for item in (routed("order_delivery"), calls_message(("transfer_back_to_router", {}), start=i))]
         result, shop, _ = self.one_turn("v2", responses, assist=False)
         self.assertEqual((result["transfers"], result["tool_count"], result["model_call_count"], result["loop_limit"]), (3, 0, 4, True))
         self.assertIn("up to 3", shop.trace[-1]["output"]["error"])
@@ -1421,7 +1449,7 @@ class GraphV2Tests(unittest.TestCase):
         for force in (False, True):
             with self.subTest(force=force):
                 scope, call, user = ("payment", ("get_payment", {"order_id": "O002"}), "영수증") if force else ("order_delivery", ("get_order", {"order_id": "O001"}), "주문 조회")
-                responses = [routed(scope), calls_message(("transfer_back_to_supervisor", {})), routed(scope)]
+                responses = [routed(scope), calls_message(("transfer_back_to_router", {})), routed(scope)]
                 responses += [calls_message(call, start=i + 1) for i in range(6)]
                 responses += [message("확인했습니다." if force else "4321원"), message("호출되면 안 됩니다.")]
                 result, _, stub = self.one_turn("v2", responses, user, assist=True)
@@ -1430,18 +1458,20 @@ class GraphV2Tests(unittest.TestCase):
                 self.assertEqual((result["reply"], result["limit_reached"], result["limit_reached_on"]), ("", False, []))
 
     def test_transfer_back_matches_v1(self):
-        result, shop, _ = self.assert_same_as_v1(lambda: [routed("order_delivery"), calls_message(("transfer_back_to_supervisor", {})), routed("refund_exchange"), message("반품 담당입니다.")], "반품 문의")
+        result, shop, _ = self.assert_same_as_v1(lambda: [routed("order_delivery"), calls_message(("transfer_back_to_router", {})), routed("refund_exchange"), message("반품 담당입니다.")], "반품 문의")
         self.assertEqual((result["routes"], result["transfers"], result["loop_limit"]), (["order_delivery", "refund_exchange"], 1, False))
         self.assertEqual([c["kind"] for c in shop.trace], ["handoff"])
+        self.assertEqual(shop.trace[0]["name"], "transfer_back_to_router")
+        self.assertEqual([c["node"] for c in result["llm_calls"]], ["router", "order_delivery", "router", "refund_exchange"])
         self.assertEqual((result["tool_count"], result["model_call_count"]), (0, 2))
-        result, _, _ = self.assert_same_as_v1(lambda: [routed("product"), calls_message(("transfer_back_to_supervisor", {})), routed("qna"), calls_message(("transfer_back_to_supervisor", {})), routed("payment"), message("Done")], "문의")
+        result, _, _ = self.assert_same_as_v1(lambda: [routed("product"), calls_message(("transfer_back_to_router", {})), routed("qna"), calls_message(("transfer_back_to_router", {})), routed("payment"), message("Done")], "문의")
         self.assertEqual((result["transfers"], result["routes"], result["loop_limit"]), (2, ["product", "qna", "payment"], False))
         self.assertEqual((result["tool_count"], result["model_call_count"]), (0, 3))
 
     def test_transfer_back_must_be_alone_and_without_arguments(self):
         cases = (
-            lambda: [routed("product"), calls_message(("transfer_back_to_supervisor", {"reason": "x"}))],
-            lambda: [routed("product"), calls_message(("get_product", {"product_id": "S01"}), ("transfer_back_to_supervisor", {}))],
+            lambda: [routed("product"), calls_message(("transfer_back_to_router", {"reason": "x"}))],
+            lambda: [routed("product"), calls_message(("get_product", {"product_id": "S01"}), ("transfer_back_to_router", {}))],
         )
         for make_responses in cases:
             with self.subTest(case=cases.index(make_responses)):
@@ -1459,7 +1489,7 @@ class GraphV2Tests(unittest.TestCase):
         result, shop, _ = self.assert_same_as_v1(lambda: [routed("human")], "상담원 연결")
         self.assertEqual((result["reply"], result["routes"]), ("상담원에게 요청을 접수했습니다.", ["human"]))
 
-    def test_supervisor_decide_path_with_backend(self):
+    def test_router_decide_path_with_backend(self):
         backend = SimpleNamespace(client=SimpleNamespace(), decide=lambda item: ({"route": {"qna": 1.0}}, {}))
         for graph in ("v1", "v2"):
             with self.subTest(graph=graph):
@@ -1468,6 +1498,7 @@ class GraphV2Tests(unittest.TestCase):
                 with patch("shop.agents.dm.valid_probs", return_value=True):
                     result = run_turn(agents, Shop(BASE, "C01"), 0, "정책 문의", []) if graph == "v1" else graph_v2.ScenarioGraph(agents, Shop(BASE, "C01")).run_turn(0, "정책 문의")
                 self.assertEqual((result["routes"], result["reply"], stub.nodes), (["qna"], "정책입니다.", ["qna"]))
+                self.assertEqual(result["llm_calls"][0]["node"], "router" if graph == "v2" else "supervisor")
 
 
 
@@ -1551,14 +1582,14 @@ class InterruptConsentTests(unittest.TestCase):
                 continue
             ctx = graph_v2.Turn(Agents(None, "C01"), self.shop, 0, None, None, False)
             tools = graph_v2.make_tools(ctx, scope)
-            self.assertEqual({t.name for t in tools}, set(SCOPES[scope]) | {"transfer_back_to_supervisor"})
+            self.assertEqual({t.name for t in tools}, set(SCOPES[scope]) | {"transfer_back_to_router"})
             self.assertFalse(any(t.return_direct for t in tools))
 
     def test_plain_reply_leaves_no_pending(self):
         row, stub = self.turn(0, [routed("order_delivery"), message("확인했습니다.")])
         self.assertIsNone(row["pending"])
         self.assertNotIn("action_decision", row)
-        self.assertEqual(stub.nodes, ["supervisor", "order_delivery"])
+        self.assertEqual(stub.nodes, ["router", "order_delivery"])
         self.assertEqual(row["pending_events"], [])
 
 
@@ -1745,7 +1776,7 @@ class InterruptConsentTests(unittest.TestCase):
         second, stub = self.turn(1, [routed("qna"), message("다시 도와드리겠습니다.")])
         self.assertFalse(second["loop_limit"])
         self.assertEqual((second["tool_count"], second["model_call_count"]), (0, 1))
-        self.assertEqual(stub.nodes, ["supervisor", "qna"])
+        self.assertEqual(stub.nodes, ["router", "qna"])
         # Every historical model tool call has a response, including the cut call.
         messages = second["messages"]
         for i, m in enumerate(messages):
@@ -1757,7 +1788,7 @@ class InterruptConsentTests(unittest.TestCase):
     def test_grounding_removal_and_transfer_survive_checkpoint_on_next_turn(self):
         first, _ = self.turn(0, [routed("product"), message("4321원입니다."), message("추가 확인이 필요합니다.")], assist=True)
         self.assertEqual(first["routes"], ["product"])
-        second, stub = self.turn(1, [routed("product"), calls_message(("transfer_back_to_supervisor", {})), routed("qna"), message("확인하겠습니다.")])
+        second, stub = self.turn(1, [routed("product"), calls_message(("transfer_back_to_router", {})), routed("qna"), message("확인하겠습니다.")])
         self.assertEqual(second["routes"], ["product", "qna"])
         self.assertFalse(any(isinstance(m, AIMessage) and "4321원" in m.content for m in second["messages"]))
         self.assertFalse(any(kind == "ai" and "4321원" in text for _, messages, _ in stub.seen for kind, text, _ in messages))
@@ -1941,7 +1972,7 @@ class InterruptConsentTests(unittest.TestCase):
     def test_regenerated_scenarios_match_builder_and_have_verdicts(self):
         import build_data
         self.assertEqual(build_data.scenarios(BASE), DATA["scenarios"])
-        self.assertEqual(DATA_VERSION, "2026-11-17-tool-consent-interrupt")
+        self.assertEqual(DATA_VERSION, "2026-11-18-router-rename")
         for scenario in DATA["scenarios"]:
             for index, turn in enumerate(scenario["turns"]):
                 if index and scenario["turns"][index - 1]["expect"].get("ask_confirmation"):
@@ -2023,9 +2054,9 @@ class InterruptConsentTests(unittest.TestCase):
 
     def test_rejection_can_transfer_to_another_domain_normally(self):
         self.start()
-        row, stub = self.turn(1, [verdict("changed"), calls_message(("transfer_back_to_supervisor", {})),
+        row, stub = self.turn(1, [verdict("changed"), calls_message(("transfer_back_to_router", {})),
                                  routed("product"), message("새 상품을 확인하겠습니다.")], "취소 말고 다른 상품을 찾아 주세요.")
-        self.assertEqual(stub.nodes, ["consent_judge", "order_delivery", "supervisor", "product"])
+        self.assertEqual(stub.nodes, ["consent_judge", "order_delivery", "router", "product"])
         self.assertEqual(row["routes"], ["order_delivery", "product"])
         self.assertEqual(self.shop.db, self.shop.initial)
 
@@ -2215,8 +2246,8 @@ class OrderPrefetchTests(unittest.TestCase):
         self.assertEqual((row["order_context"], shop.trace), ([], []))
 
     def test_prefetch_is_shared_across_specialist_reentry_and_resets_next_turn(self):
-        stub = RecordingStub([routed("order_delivery"), calls_message(("transfer_back_to_supervisor", {}), start=0),
-                              routed("refund_exchange"), calls_message(("transfer_back_to_supervisor", {}), start=1),
+        stub = RecordingStub([routed("order_delivery"), calls_message(("transfer_back_to_router", {}), start=0),
+                              routed("refund_exchange"), calls_message(("transfer_back_to_router", {}), start=1),
                               routed("order_delivery"), message("확인했습니다."),
                               routed("order_delivery"), message("확인했습니다."), decision_none()])
         shop = Shop(BASE, "C01")
@@ -2586,14 +2617,14 @@ class NodePolicyConfirmationTests(unittest.TestCase):
         expected = {"order_delivery": ("P04", "P05", "P08", "P09"),
                     "refund_exchange": ("P01", "P02", "P03", "P09", "P10"),
                     "payment": ("P06", "P07", "P12"), "qna": tuple(f"P{number:02}" for number in range(1, 13)),
-                    "product": (), "human": ("P11",), "supervisor": ()}
+                    "product": (), "human": ("P11",), "supervisor": (), "router": ()}
         self.assertEqual(NODE_POLICY_IDS, expected)
         shop = Shop(BASE, "C01", {"policies": {policy_id: {"text": f"문서 {policy_id}: 고유한 본문 그대로\n두 번째 줄"}
                                                for policy_id in BASE["policies"]}})
         agents = Agents(None, "C01")
         for node, policy_ids in expected.items():
             with self.subTest(node=node):
-                prompt = agents.messages(node, [], v2=True, shop=shop)[0].content
+                prompt = agents.messages("router" if node == "supervisor" else node, [], v2=True, shop=shop)[0].content
                 self.assertEqual(shop.policy_context(node), {policy_id: shop.get_policy(policy_id)["text"] for policy_id in policy_ids})
                 for policy_id in BASE["policies"]:
                     self.assertEqual(shop.get_policy(policy_id)["text"] in prompt, policy_id in policy_ids)
@@ -2606,20 +2637,21 @@ class NodePolicyConfirmationTests(unittest.TestCase):
         fingerprint = hashlib.sha256(json.dumps(original, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         self.assertEqual(fingerprint, "f782b123513d05afda6031ea043da7c429d51ae8bd9b9ec8d4515c90424a1359")
         self.assertEqual(hashlib.sha256((ROOT / "shop/graph.py").read_bytes()).hexdigest(), "25a702dced793c75a5b2811f40f6a85d07f70a463d92f7fe5ce2bdbd88814681")
-        self.assertEqual(prompts["v2_supervisor"], prompts["supervisor"])
+        self.assertEqual(prompts["v2_router"], prompts["supervisor"])
+        self.assertNotIn("v2_supervisor", prompts)
         for role in ("common", "order_delivery", "refund_exchange", "payment", "human"):
             self.assertNotEqual(prompts["v2_" + role], prompts[role])
             self.assertNotIn("3000원", prompts["v2_" + role])
             self.assertNotIn("6000원", prompts["v2_" + role])
 
     def test_policy_context_records_only_nodes_that_ran_this_turn(self):
-        agents = Agents(RecordingStub([routed("product"), calls_message(("transfer_back_to_supervisor", {})), routed("qna"), message("확인했습니다."),
+        agents = Agents(RecordingStub([routed("product"), calls_message(("transfer_back_to_router", {})), routed("qna"), message("확인했습니다."),
                                        routed("payment"), message("확인했습니다.")]), "C01")
         app = graph_v2.ScenarioGraph(agents, Shop(BASE, "C01"))
         first = app.run_turn(0, "문의")
         second = app.run_turn(1, "결제 문의")
-        self.assertEqual(first["policy_context"], {"supervisor": [], "product": [], "qna": list(NODE_POLICY_IDS["qna"])})
-        self.assertEqual(second["policy_context"], {"supervisor": [], "payment": list(NODE_POLICY_IDS["payment"])})
+        self.assertEqual(first["policy_context"], {"router": [], "product": [], "qna": list(NODE_POLICY_IDS["qna"])})
+        self.assertEqual(second["policy_context"], {"router": [], "payment": list(NODE_POLICY_IDS["payment"])})
 
     def test_policy_only_number_grounds_runtime_and_grader_but_invention_does_not(self):
         scenario = self.scenario("single-27")
@@ -2910,6 +2942,36 @@ class NodePolicyConfirmationTests(unittest.TestCase):
 
 
 class GraderTests(unittest.TestCase):
+    def test_router_rename_preserves_legacy_record_grades(self):
+        scenario = next(s for s in DATA["scenarios"] if s["id"] == "single-18")
+        rows, shop, _ = play(scenario, "v2", assist=False)
+        for mode in ("tool_interrupt", "proposal"):
+            with self.subTest(mode=mode):
+                current = copy.deepcopy(rows)
+                for row in current:
+                    row["consent_mode"] = mode
+                current[0]["calls"].append({"kind": "handoff", "name": "transfer_back_to_router",
+                                            "arguments": {}, "output": {"transferred": True}, "changes": {}})
+                if mode == "proposal":
+                    # A routing call after a report must never count as an answer.
+                    current[-1]["llm_calls"] = [{"node": "report"}, {"node": "router"}]
+                legacy = copy.deepcopy(current)
+                for row in legacy:
+                    for call in row["llm_calls"]:
+                        if call["node"] == "router":
+                            call["node"] = "supervisor"
+                    for call in row["calls"]:
+                        if call["name"] == "transfer_back_to_router":
+                            call["name"] = "transfer_back_to_supervisor"
+                    policies = row.get("policy_context", {})
+                    if "router" in policies:
+                        policies["supervisor"] = policies.pop("router")
+                old_grade = grade_scenario(scenario, legacy, shop)
+                new_grade = grade_scenario(scenario, current, shop)
+                self.assertTrue(old_grade["success"], old_grade)
+                self.assertEqual(new_grade, old_grade)
+                self.assertEqual(new_grade["violations"]["report_execution_mismatch"], 0)
+
     def test_v2_refund_without_required_phrase_passes_and_legacy_still_fails(self):
         scenario = next(s for s in DATA["scenarios"] if s["id"] == "single-18")
         for graph in ("v1", "v2"):
@@ -3245,6 +3307,33 @@ class GraderTests(unittest.TestCase):
 
 
 class RescoreTests(unittest.TestCase):
+    def test_v2_report_preserves_legacy_router_record_results(self):
+        scenario = next(s for s in DATA["scenarios"] if s["id"] == "single-18")
+        rows, shop, _ = play(scenario, "v2", assist=False)
+        rows = [{k: v for k, v in row.items() if k != "messages"} for row in rows]
+        grade = grade_scenario(scenario, rows, shop)
+        outputs = []
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            folder = Path(directory)
+            for node, handoff_name in (("supervisor", "transfer_back_to_supervisor"),
+                                       ("router", "transfer_back_to_router")):
+                saved_rows = copy.deepcopy(rows)
+                for row in saved_rows:
+                    for call in row["llm_calls"]:
+                        if call["node"] == "router":
+                            call["node"] = node
+                saved_rows[0]["calls"].append({"kind": "handoff", "name": handoff_name,
+                                               "arguments": {}, "output": {"transferred": True}, "changes": {}})
+                saved = {"graph": "v2", "data_version": "2026-11-17-tool-consent-interrupt" if node == "supervisor" else DATA_VERSION,
+                         "scenarios": [{"id": scenario["id"], "turns": saved_rows, "grade": grade, "success": grade["success"]}]}
+                (folder / "results.json").write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    rescore.v2_report([folder])
+                outputs.append(output.getvalue())
+        self.assertEqual(outputs[0], outputs[1])
+        self.assertIn("No scenario success changes.", outputs[0])
+
     def test_v2_report_handles_scheduled_unrun_rows_and_empty_runs(self):
         for rows in ([], [{"id": "single-18", "status": "blocked", "success": False, "turns": []}]):
             with self.subTest(rows=rows), tempfile.TemporaryDirectory(dir="/tmp") as directory:
@@ -3845,6 +3934,17 @@ class FixtureTests(unittest.TestCase):
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_router_and_legacy_handoffs_remain_readable(self):
+        html = chat_view.render_html({"runs": []})
+        self.assertIn("router:'라우터'", html)
+        self.assertIn("supervisor:'라우터'", html)
+        for name in ("transfer_back_to_router", "transfer_back_to_supervisor"):
+            with self.subTest(name=name):
+                turn = {"routes": ["product", "qna"], "calls": [
+                    {"kind": "handoff", "name": name, "arguments": {}, "output": {"transferred": True}}]}
+                self.assertEqual(chat_view.clean_turn(turn)["calls"][0]["name"], name)
+                self.assertIn("'" + name + "'", html)
+
     def test_internal_decision_request_is_separate_from_customer_bubble(self):
         request = {"specialist_reply": "취소할까요?", "irreversible_tools": [
             s for s in schemas("order_delivery") if s["function"]["name"] in IRREVERSIBLE]}
@@ -4129,7 +4229,7 @@ class RunnerTests(unittest.TestCase):
         result = self.result("solar-pro4-graph2-r1")
         self.assertTrue(result["scenarios"][0]["success"])
         nodes = {call["node"] for turn in result["scenarios"][0]["turns"] for call in turn["llm_calls"]}
-        self.assertTrue({"supervisor", "refund_exchange", "consent_judge", "simulated_customer"} <= nodes, nodes)
+        self.assertTrue({"router", "refund_exchange", "consent_judge", "simulated_customer"} <= nodes, nodes)
         self.preflight.assert_not_called()
         self.resident.assert_not_called()
 
@@ -4372,6 +4472,31 @@ class PreflightTests(unittest.TestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_router_and_legacy_records_have_identical_summaries(self):
+        for stored_latency in (False, True):
+            with self.subTest(stored_latency=stored_latency):
+                legacy = self.fixture()
+                for scenario in legacy["scenarios"]:
+                    for turn in scenario["turns"]:
+                        turn.pop("latency", None)
+                        turn["calls"] = [{"kind": "handoff", "name": "transfer_back_to_supervisor"}]
+                current = copy.deepcopy(legacy)
+                for scenario in current["scenarios"]:
+                    for turn in scenario["turns"]:
+                        for call in turn["llm_calls"]:
+                            if call["node"] == "supervisor":
+                                call["node"] = "router"
+                        turn["calls"][0]["name"] = "transfer_back_to_router"
+                for run in (legacy, current):
+                    if stored_latency:
+                        for scenario in run["scenarios"]:
+                            for turn in scenario["turns"]:
+                                turn["latency"] = runner.latency_split(turn)
+                before = summary.summarize_group([legacy])
+                self.assertEqual(summary.summarize_group([current]), before)
+                self.assertEqual(before["latency_ms_per_turn"]["all"]["judge_total"]["median"], 20)
+                self.assertEqual(before["latency_ms_per_turn"]["all"]["answer_total"]["median"], 70)
+
     def test_pass_hat_k_math_for_one_two_three_attempts_and_mixed_results(self):
         for attempts in (1, 2, 3):
             rows = [{"id": sid, "attempt_index": i, "success": sid == "single-01" or i != attempts} for sid in ("single-01", "single-02") for i in range(1, attempts + 1)]

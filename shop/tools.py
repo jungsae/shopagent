@@ -17,6 +17,7 @@ NODE_POLICY_IDS = {
     "product": (),
     "human": ("P11",),
     "supervisor": (),
+    "router": (),
 }
 CUSTOMER_RESPONSE = {"type": "function", "function": {
     "name": "customer_response",
