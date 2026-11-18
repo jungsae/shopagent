@@ -160,6 +160,7 @@ Native reliability reports `pass^3` only for exactly three full runs with distin
 `--graph v2`는 LangChain `create_agent`와 LangGraph `interrupt` / `Command(resume=...)`를 사용한다. 기본값은 `--graph v1`이다. v1 그래프와 기존 문장 기반 동의 채점은 유지된다.
 
 v2 흐름은 라우터 (router) → 담당자 → 되돌릴 수 없는 도구 호출 시 실행 전 멈춤 → runner의 consent_judge가 고객 답장을 approve/reject/respond로 바꿔 재개 → 실행 결과를 담당자가 직접 안내하는 순서다. 라우터는 고객에게 답하지 않고 담당자 한 명 또는 상담원으로 연결한다. 담당자는 자기 범위의 조회·실행 도구를 직접 사용하며 transfer_back_to_router로 재라우팅을 요청할 수 있다. HumanInTheLoopMiddleware의 per_call 중단이 실행 전에 모델 문구와 Shop.confirmation_card를 보여 준다. 한 모델 응답에 실행 요청이 여러 개면 첫 번째만 확인하고 나머지는 실행하지 않는다.
+고객이 거절한 도구와 주문의 조합은 거절한 턴의 재호출을 구조적으로 차단하며, 새 고객 메시지에서는 다시 동의를 받을 수 있다.
 
 ScenarioGraph는 시나리오별 InMemorySaver와 thread를 유지하고 담당자 서브그래프가 부모 체크포인터를 상속한다. 재개 시 라우터를 다시 호출하지 않는다. yes는 approve, no/changed는 고객 원문을 포함한 reject, unclear는 실행하지 않았다는 respond로 바꾼다. 모든 고객 답장은 현재 대기를 해소한다. resume_turn은 프런트엔드의 일반 decision도 LLM 없이 받는다. 실행 결과나 거절 메시지를 받은 담당자가 직접 답하며 별도 결과 안내 노드는 없다.
 
@@ -181,7 +182,7 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python run.py --full --graph v2 --config g12
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python run.py --full --graph v2 --assist on --config g12-native --repeat 1 --port 18380 --load-timeout 300 --request-timeout 180
 ```
 
-`DATA_VERSION`은 `2026-11-18-router-rename`이다. 새 v2 기록은 router와 transfer_back_to_router를 쓰며 이전 supervisor 기록도 동일하게 읽고 채점한다. v2 구조 채점의 세대를 구분한다. rescore/summarize는 이전 버전의 proposal trace와 옛 지표명도 읽는다. rescore는 이전 버전의 시나리오 ID·턴 구조를 확인하고 현재 기대값으로 재채점하며, 두 버전과 fingerprint 차이를 metadata에 기록한다. 같은 버전의 fingerprint 불일치는 거부한다. interrupt/checkpoint 객체는 결과 JSON에 내보내지 않는다.
+`DATA_VERSION`은 `2026-11-18-declined-tool-recall-guard`이다. 새 v2 기록은 router와 transfer_back_to_router를 쓰며 이전 supervisor 기록도 동일하게 읽고 채점한다. v2 구조 채점의 세대를 구분한다. rescore/summarize는 이전 버전의 proposal trace와 옛 지표명도 읽는다. rescore는 이전 버전의 시나리오 ID·턴 구조를 확인하고 현재 기대값으로 재채점하며, 두 버전과 fingerprint 차이를 metadata에 기록한다. 같은 버전의 fingerprint 불일치는 거부한다. interrupt/checkpoint 객체는 결과 JSON에 내보내지 않는다.
 
 `results.json`에 `graph`와 `assist`가 기록되고, `summarize.py`는 v2를 v1과 섞지 않고 `graph`/`assist`별 별도 그룹으로 보여 주며 unconfirmed_executions, judge accuracy, 제안 없는 확인 기대 턴 수를 함께 낸다. `--assist`는 v2에서만 쓸 수 있다(v1은 항상 교정 규칙을 적용).
 
@@ -228,7 +229,7 @@ v2 성공은 다음 조건을 모두 만족해야 한다.
 
 ### v2 Step 2: 조회 게이트와 정책·확인 카드
 
-런타임 데이터 버전은 `2026-11-18-router-rename`이다. 새 v2 기록은 router와 transfer_back_to_router를 쓰며 이전 supervisor 기록도 동일하게 읽고 채점한다. `build_data.py --scenarios-only`는 대본과 나머지 기대값을 보존하며 v2 전용 기대값을 추가하고 아래 라우팅 허용 집합을 반영한다. proposal 턴은 `expect.v2_required_calls`가 있으면 그 이름·인자·횟수를 필수로 채점하고, 없으면 `required_calls`로 돌아간다. `v2_reference_calls`는 `reference_count`, `reference_hits`, `reference_call_recall`에만 반영한다. 누락되거나 인자가 달라도 성공에는 영향이 없다. robust-05의 검색어도 이 참고 지표로만 측정한다. summarize와 읽기 전용 rescore에도 참고 호출 재현율을 출력한다.
+런타임 데이터 버전은 `2026-11-18-declined-tool-recall-guard`이다. 새 v2 기록은 router와 transfer_back_to_router를 쓰며 이전 supervisor 기록도 동일하게 읽고 채점한다. `build_data.py --scenarios-only`는 대본과 나머지 기대값을 보존하며 v2 전용 기대값을 추가하고 아래 라우팅 허용 집합을 반영한다. proposal 턴은 `expect.v2_required_calls`가 있으면 그 이름·인자·횟수를 필수로 채점하고, 없으면 `required_calls`로 돌아간다. `v2_reference_calls`는 `reference_count`, `reference_hits`, `reference_call_recall`에만 반영한다. 누락되거나 인자가 달라도 성공에는 영향이 없다. robust-05의 검색어도 이 참고 지표로만 측정한다. summarize와 읽기 전용 rescore에도 참고 호출 재현율을 출력한다.
 
 policy-09 T0만 `expect.allowed_outcomes=["proposal", "clarify"]`로 제안 또는 되묻기를 허용한다. 필드가 없으면 기존대로 `ask_confirmation=true`에 제안이 필수다. `clarify`는 proposal 동의 모드에서 제안 없이 정상 종료(`status=complete`, loop_limit/error 없음)하고, 비가역 도구 호출 없이 유효한 `action_decision.action="none"`(이전 결과의 `kind="none"`도 허용)이며 필수 조회를 모두 충족할 때 인정한다. tool_interrupt 기록은 action_decision 없이 정상 종료·필수 조회·실행 없음·DB 불변·금지 호출 없음으로 clarify를 인정한다. 턴 grade에 `outcome`(`proposal`/`clarify`/`missing`)을 기록하고 되묻기 통과도 `confirmation_correct=true`로 센다. 답변 내용은 검사하지 않으므로 이 기대값은 “조회 후 상태 변경 없이 제안도 하지 않은 정상 종료”만 인정하며 실제 질문 여부나 내용은 보장하지 않는다. 최종 DB 불변(`final_state`)과 금지 호출은 기존대로 강제한다.
 

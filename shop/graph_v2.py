@@ -54,7 +54,7 @@ class Turn:
     """Separate specialist-model and real-tool budgets; steps is informational only.
 
     steps keeps the old model/routing/tools-round count for saved-result readers.
-    tool_count includes domain functions, but excludes routing,
+    tool_count includes domain functions and declined recall attempts, but excludes routing,
     handoffs, order prefetch and validation errors that never execute.
     llm_calls remains the timing-record list, including router routing.
     """
@@ -294,11 +294,19 @@ class TurnMiddleware(AgentMiddleware):
         call = request.tool_call
         name, arguments = call["name"], call["args"]
 
-        def answer(output):
-            return ToolMessage(content=json.dumps(output, ensure_ascii=False), tool_call_id=call["id"], name=name)
+        def answer(output, status="success"):
+            return ToolMessage(content=json.dumps(output, ensure_ascii=False), tool_call_id=call["id"], name=name, status=status)
 
+        # Let the interrupted call consume its HITL decision first. Only a new
+        # attempt is guarded, even when the model reuses the original call ID.
+        resolving = ctx.resolving
+        declined = None
+        if name in IRREVERSIBLE and not (resolving and resolving.get("tool_call_id") == call["id"]):
+            declined = next((entry for entry in request.runtime.context["declined_actions"]
+                             if entry["turn"] == ctx.turn and entry["tool"] == name
+                             and entry["order_id"] == arguments.get("order_id")), None)
         message = next(m for m in reversed(request.state["messages"]) if isinstance(m, AIMessage))
-        if name in IRREVERSIBLE:
+        if name in IRREVERSIBLE and not declined:
             gated = [c for c in message.tool_calls if c["name"] in IRREVERSIBLE]
             if gated and call["id"] != gated[0]["id"]:
                 return ToolMessage(content="한 응답에서는 첫 번째 실행 요청만 확인할 수 있습니다. 추가 요청은 실행하지 않았습니다.", tool_call_id=call["id"], name=name, status="error")
@@ -324,10 +332,23 @@ class TurnMiddleware(AgentMiddleware):
             ctx.shop.record_call({"kind": "tool", "turn": ctx.turn, "name": name, "arguments": arguments, "output": output, "changes": {}, "scope_error": True})
             ctx.tools_ran = True
             return answer(output)
+        if declined:
+            output = {"ok": False, "error": "DECLINED_BY_CUSTOMER",
+                      "message": f"고객이 이번 요청에서 이미 이 작업({name}, 주문 {arguments.get('order_id')})을 거절했습니다. 다시 실행하지 말고 고객에게 답변하세요."}
+            ctx.tool_count += 1
+            ctx.shop.record_call({"kind": "blocked", "turn": ctx.turn, "name": name,
+                                  "arguments": copy.deepcopy(arguments), "output": output, "changes": {},
+                                  "proposal_id": declined["proposal_id"], "declined_guard": True})
+            ctx.tools_ran = True
+            return answer(output, status="error")
         result = handler(request)
         ctx.tools_ran = True
         ctx.resolving = None
         return result
+
+
+class SpecialistContext(TypedDict):
+    declined_actions: list[dict]
 
 
 def build_agent(ctx, scope, agents, shop):
@@ -360,15 +381,17 @@ def build_agent(ctx, scope, agents, shop):
         interrupt_mode="per_call",
         interrupt_on={name: {"allowed_decisions": ["approve", "reject", "respond"], "description": describe}
                       for name in SCOPES[scope] if name in IRREVERSIBLE})
-    # 바깥 TurnMiddleware는 중단 전 검증만 한다. 실행/횟수 변경은 HITL 뒤에서 한다.
+    # 거절된 재호출은 바깥 미들웨어에서 횟수를 세고 HITL 전에 차단한다.
     return create_agent(ScopeModel(ctx=ctx, node=scope), make_tools(ctx, scope),
                         system_prompt=agents.messages(scope, [], v2=True, shop=shop)[0],
+                        context_schema=SpecialistContext,
                         middleware=[TurnMiddleware(ctx, scope), gate], name=scope)
 
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     agent: str
+    declined_actions: list[dict]
 
 
 class TurnContext:
@@ -464,7 +487,10 @@ def build_graph(agents, checkpointer, shop):
         agent = build_agent(ctx, scope, agents, shop)
 
         def run(state, config):
-            result = agent.invoke({"messages": state["messages"]}, config)
+            # The child's interrupted tools task retains its old state. Supply
+            # the parent's checkpointed declines as fresh runtime context on replay.
+            result = agent.invoke({"messages": state["messages"]}, config,
+                                  context={"declined_actions": state.get("declined_actions", [])})
             ctx.resuming = False
             # The child reducer may remove an ungrounded answer. Propagate those
             # deletions explicitly through the parent's add_messages reducer.
@@ -528,7 +554,7 @@ class ScenarioGraph:
             if self.graph.get_state(self.config).interrupts:
                 decision = judge_consent(ctx, user_text)
                 return self.resume_turn(turn_index, decision, user_text, _ctx=ctx, _start=start)
-            return self._invoke(ctx, {"messages": [HumanMessage(content=user_text)]}, start)
+            return self._invoke(ctx, {"messages": [HumanMessage(content=user_text)], "declined_actions": []}, start)
         except BaseException as error:
             error.shop_state = ctx.public()
             error.shop_total_ms = (time.perf_counter() - start) * 1000
@@ -556,7 +582,12 @@ class ScenarioGraph:
             ctx.event("judged", pending, **{k: v for k, v in ctx.consent_judgment.items() if k != "proposal_id"})
         if decision["type"] != "approve":
             ctx.clear(ctx.consent_judgment["verdict"])
-        return self._invoke(ctx, Command(resume={snapshot.interrupts[0].id: decision}),
+        update = None
+        if decision["type"] == "reject":
+            declined = {"tool": pending["name"], "order_id": pending["args"].get("order_id"),
+                        "proposal_id": pending["id"], "turn": turn_index}
+            update = {"declined_actions": [*snapshot.values.get("declined_actions", []), declined]}
+        return self._invoke(ctx, Command(resume={snapshot.interrupts[0].id: decision}, update=update),
                             _start if _start is not None else time.perf_counter())
 
     def _invoke(self, ctx, value, start):
@@ -572,6 +603,7 @@ class ScenarioGraph:
             self.pending = copy.deepcopy(ctx.pending)
             self.sequence = ctx.sequence
         final = ctx.public()
+        final["declined_actions"] = copy.deepcopy(result.get("declined_actions", []))
         final["messages"] = ctx.interrupted_messages or result["messages"]
         final["total_ms"] = (time.perf_counter() - start) * 1000
         calls = final["llm_calls"]
@@ -602,5 +634,5 @@ def judge_consent(ctx, customer_text):
     if verdict == "yes":
         return {"type": "approve"}
     if verdict in ("no", "changed"):
-        return {"type": "reject", "message": "고객이 승인하지 않아 실행하지 않았습니다. 고객 답변: " + customer_text + "\n고객이 다시 요청하기 전에는 같은 도구를 다시 호출하지 마세요."}
-    return {"type": "respond", "message": "고객 답변이 불분명해 실행하지 않았습니다. 고객 답변: " + customer_text + "\n필요하면 다시 확인을 요청하세요. 고객이 다시 요청하기 전에는 같은 도구를 다시 호출하지 마세요."}
+        return {"type": "reject", "message": "고객이 승인하지 않아 실행하지 않았습니다. 고객 답변: " + customer_text}
+    return {"type": "respond", "message": "고객 답변이 불분명해 실행하지 않았습니다. 고객 답변: " + customer_text + "\n필요하면 다시 확인을 요청하세요."}

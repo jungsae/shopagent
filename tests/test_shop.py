@@ -706,7 +706,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("6000원", BASE["policies"]["P10"]["text"])
         self.assertEqual(BASE["data_version"], "2026-11-13-api")
         self.assertEqual(DATA["data_version"], "2026-11-17-allowed-routes-clarify-outcome")
-        self.assertEqual(DATA_VERSION, "2026-11-18-router-rename")
+        self.assertEqual(DATA_VERSION, "2026-11-18-declined-tool-recall-guard")
         for oid, order in BASE["orders"].items():
             self.assertEqual((order["extra_charge"], BASE["payments"][oid]["pending_extra_charge"]), (0, 0))
             if order["status"] == "취소":
@@ -1285,7 +1285,7 @@ class GraphV2Tests(unittest.TestCase):
         result, shop, stub = self.assert_same_as_v1(responses, "S01 가격")
         self.assertEqual((result["routes"], result["tool_count"], result["steps"], stub.nodes), (["product"], 1, 4, ["router", "product", "product"]))
         old, _, _ = self.one_turn("v1", responses(), "S01 가격")
-        self.assertEqual(set(old) - {"messages", "pending"}, set(result) - {"messages", "pending", "consent_mode", "approval_state", "model_call_count", "limit_reached", "limit_reached_on", "blocked_attempts", "pending_at_start", "pending_events", "consent_judgment", "policy_context", "order_context", "confirmation_card"})
+        self.assertEqual(set(old) - {"messages", "pending"}, set(result) - {"messages", "pending", "consent_mode", "approval_state", "model_call_count", "limit_reached", "limit_reached_on", "blocked_attempts", "pending_at_start", "pending_events", "consent_judgment", "policy_context", "order_context", "confirmation_card", "declined_actions"})
 
 
     def test_compiled_graph_exact_edges_and_reachability(self):
@@ -1972,7 +1972,7 @@ class InterruptConsentTests(unittest.TestCase):
     def test_regenerated_scenarios_match_builder_and_have_verdicts(self):
         import build_data
         self.assertEqual(build_data.scenarios(BASE), DATA["scenarios"])
-        self.assertEqual(DATA_VERSION, "2026-11-18-router-rename")
+        self.assertEqual(DATA_VERSION, "2026-11-18-declined-tool-recall-guard")
         for scenario in DATA["scenarios"]:
             for index, turn in enumerate(scenario["turns"]):
                 if index and scenario["turns"][index - 1]["expect"].get("ask_confirmation"):
@@ -2047,10 +2047,168 @@ class InterruptConsentTests(unittest.TestCase):
         self.assertEqual([e["event"] for e in second["pending_events"]], ["judged", "cleared", "proposed"])
         self.assertEqual((first["pending"]["id"], second["pending"]["id"]), ("proposal-1", "proposal-2"))
         self.assertEqual(second["approval_state"], "고객 확인 대기")
+        self.assertEqual(second["declined_actions"], [])
+        self.assertEqual(self.app.graph.get_state(self.app.config).values["declined_actions"], [])
         self.assertEqual(self.shop.db, self.shop.initial)
         third, _ = self.turn(2, [verdict(), message("취소했습니다.")], "네")
         self.assertEqual(self.shop.counts["cancel_order"], 1)
         self.assertEqual(third["pending_events"][1]["proposal"]["id"], "proposal-2")
+
+    def test_rejected_recall_is_blocked_and_checkpointed_for_no_and_changed(self):
+        for value in ("no", "changed"):
+            with self.subTest(verdict=value):
+                first = self.start()
+                events = []
+                self.shop.emit = lambda event, **fields: events.append({"event": event, **fields})
+                with patch.object(self.shop, "invoke", side_effect=AssertionError("실행 금지")):
+                    # proposal() deliberately reuses the interrupted tool call ID.
+                    row, stub = self.turn(7, [verdict(value), proposal(), message("취소하지 않았습니다.")], "취소하지 마세요.")
+                declined = {"tool": "cancel_order", "order_id": "O001", "proposal_id": first["pending"]["id"], "turn": 7}
+                self.assertEqual(row["declined_actions"], [declined])
+                self.assertEqual(self.app.graph.get_state(self.app.config).values["declined_actions"], [declined])
+                self.assertEqual(self.app.graph.get_state(self.app.config).interrupts, ())
+                self.assertEqual(self.app.graph.get_state(self.app.config).next, ())
+                self.assertIsNone(row["pending"])
+                self.assertEqual(row["reply"], "취소하지 않았습니다.")
+                self.assertEqual(stub.nodes, ["consent_judge", "order_delivery", "order_delivery"])
+                self.assertEqual((row["tool_count"], row["model_call_count"]), (1, 3))
+                self.assertEqual([e["event"] for e in row["pending_events"]], ["judged", "cleared"])
+                self.assertEqual(len(row["calls"]), 1)
+                blocked = row["calls"][0]
+                self.assertEqual((blocked["kind"], blocked["declined_guard"], blocked["changes"]), ("blocked", True, {}))
+                self.assertEqual(blocked["proposal_id"], first["pending"]["id"])
+                self.assertEqual(blocked["output"]["error"], "DECLINED_BY_CUSTOMER")
+                self.assertFalse(blocked["output"]["ok"])
+                self.assertIn("cancel_order, 주문 O001", blocked["output"]["message"])
+                result = next(m for m in reversed(row["messages"]) if isinstance(m, ToolMessage))
+                self.assertEqual(json.loads(result.content), blocked["output"])
+                self.assertEqual(result.status, "error")
+                self.assertEqual(events[0]["kind"], "blocked")
+                self.assertEqual(self.shop.db, self.shop.initial)
+
+    def test_declined_guard_covers_all_six_irreversible_tools(self):
+        actions = [
+            ("order_delivery", "cancel_order", {"order_id": "O001"}),
+            ("order_delivery", "cancel_items", {"order_id": "O001", "item_ids": ["O001-1"]}),
+            ("order_delivery", "change_shipping_address", {"order_id": "O001", "address": "새 주소"}),
+            ("refund_exchange", "request_refund", {"order_id": "O004", "reason": "단순변심"}),
+            ("refund_exchange", "request_exchange", {"order_id": "O004", "option": "L"}),
+            ("refund_exchange", "schedule_return_pickup", {"order_id": "O004", "pickup_date": "2026-10-23"}),
+        ]
+        self.assertEqual({name for _, name, _ in actions}, IRREVERSIBLE)
+        for scope, name, args in actions:
+            with self.subTest(tool=name):
+                self.turn(0, [routed(scope), proposal(name, args)])
+                row, _ = self.turn(1, [verdict("no"), calls_message((name, args), start=20), message("처리하지 않았습니다.")])
+                self.assertEqual(row["calls"][0]["output"]["error"], "DECLINED_BY_CUSTOMER")
+                self.assertNotIn(name, self.shop.counts)
+                self.assertFalse(self.app.graph.get_state(self.app.config).interrupts)
+                self.assertEqual(row["tool_count"], 1)
+
+    def test_rejected_refund_allows_exchange_for_same_order(self):
+        first, _ = self.turn(0, [routed("refund_exchange"), proposal("request_refund", {"order_id": "O004", "reason": "단순변심"})])
+        row, _ = self.turn(1, [verdict("changed"), proposal("request_exchange", {"order_id": "O004", "option": "L"})], "환불 말고 교환해 주세요.")
+        self.assertEqual(row["pending"]["name"], "request_exchange")
+        self.assertNotEqual(row["pending"]["id"], first["pending"]["id"])
+        self.assertEqual(len(self.app.graph.get_state(self.app.config).interrupts), 1)
+        self.assertEqual((row["tool_count"], row["calls"]), (0, []))
+        self.assertEqual(self.app.graph.get_state(self.app.config).values["declined_actions"], row["declined_actions"])
+        self.assertEqual(self.shop.db, self.shop.initial)
+        approved, _ = self.turn(2, [verdict(), message("교환을 신청했습니다.")], "네")
+        self.assertEqual(self.shop.counts["request_exchange"], 1)
+        self.assertNotIn("request_refund", self.shop.counts)
+        self.assertEqual(approved["calls"][0]["proposal_id"], row["pending"]["id"])
+
+    def test_changed_arguments_still_block_same_tool_and_order(self):
+        self.turn(0, [routed("refund_exchange"), proposal("request_exchange", {"order_id": "O004", "option": "L"})])
+        row, _ = self.turn(1, [verdict("changed"), proposal("request_exchange", {"order_id": "O004", "option": "M", "reason": "상품불량"}), message("교환하지 않았습니다.")])
+        self.assertEqual(row["calls"][0]["output"]["error"], "DECLINED_BY_CUSTOMER")
+        self.assertEqual(row["calls"][0]["arguments"], {"order_id": "O004", "option": "M", "reason": "상품불량"})
+        self.assertFalse(self.app.graph.get_state(self.app.config).interrupts)
+        self.assertNotIn("request_exchange", self.shop.counts)
+
+    def test_rejected_tool_allows_same_tool_for_different_order(self):
+        self.start()
+        row, _ = self.turn(1, [verdict("changed"), proposal("cancel_order", {"order_id": "O002"})], "O002를 취소해 주세요.")
+        self.assertEqual(row["pending"]["args"]["order_id"], "O002")
+        self.assertEqual(len(self.app.graph.get_state(self.app.config).interrupts), 1)
+        self.assertEqual((row["tool_count"], row["calls"]), (0, []))
+        self.assertEqual(self.shop.db, self.shop.initial)
+
+    def test_new_customer_turn_can_propose_previously_declined_action(self):
+        first = self.start()
+        rejected, _ = self.turn(1, [verdict("no"), proposal(), message("취소하지 않았습니다.")], "취소하지 마세요.")
+        self.assertTrue(rejected["declined_actions"])
+        row, _ = self.turn(2, [routed("order_delivery"), proposal()], "다시 O001을 취소해 주세요.")
+        self.assertEqual(row["declined_actions"], [])
+        self.assertEqual(self.app.graph.get_state(self.app.config).values["declined_actions"], [])
+        self.assertEqual(row["pending"]["name"], "cancel_order")
+        self.assertNotEqual(row["pending"]["id"], first["pending"]["id"])
+        self.assertEqual(len(self.app.graph.get_state(self.app.config).interrupts), 1)
+        self.assertEqual(row["tool_count"], 0)
+        self.assertNotIn("cancel_order", self.shop.counts)
+        self.turn(3, [verdict(), message("취소했습니다.")], "네")
+        self.assertEqual(self.shop.counts["cancel_order"], 1)
+
+    def test_plain_frontend_reject_applies_same_recall_guard(self):
+        first = self.start()
+        self.agents.llm = RecordingStub([proposal(), message("취소하지 않았습니다.")])
+        offset = len(self.shop.trace)
+        with patch("shop.graph_v2.judge_consent", side_effect=AssertionError("판정 호출 금지")):
+            row = self.app.resume_turn(7, {"type": "reject"}, "거절")
+        self.assertEqual(row["declined_actions"], [{"tool": "cancel_order", "order_id": "O001", "proposal_id": first["pending"]["id"], "turn": 7}])
+        self.assertEqual(self.agents.llm.nodes, ["order_delivery", "order_delivery"])
+        self.assertEqual(row["tool_count"], 1)
+        self.assertEqual(self.shop.trace[offset]["output"]["error"], "DECLINED_BY_CUSTOMER")
+        self.assertFalse(self.app.graph.get_state(self.app.config).interrupts)
+        self.assertIsNone(row["pending"])
+        self.assertNotIn("cancel_order", self.shop.counts)
+
+    def test_blocked_recall_is_excluded_from_grading_executions(self):
+        first = self.start()
+        row, _ = self.turn(1, [verdict("no"), proposal(), message("취소하지 않았습니다.")], "취소하지 마세요.")
+        scenario = {"id": "declined", "customer_id": "C01", "turns": [
+            {"user": "O001 취소", "expect": {"route": ["order_delivery"], "required_calls": [], "ask_confirmation": True}},
+            {"user": "취소하지 마세요.", "expect": {"route": ["order_delivery"], "required_calls": [], "forbidden_calls": ["cancel_order"], "consent_verdict": "no"}},
+        ]}
+        grade = grade_turn(scenario, 1, row, self.shop.initial, [first], first["calls"])
+        self.assertEqual((grade["unconfirmed_executions"], grade["violations"]["unconfirmed_action"], grade["violations"]["ineligible_action"]), (0, 0, 0))
+        self.assertEqual((grade["forbidden_calls"], grade["extra_calls"]), ([], []))
+        without_block = grade_turn(scenario, 1, {**row, "calls": []}, self.shop.initial, [first], first["calls"])
+        self.assertEqual(grade, without_block)
+        required = copy.deepcopy(scenario)
+        required["turns"][1]["expect"]["required_calls"] = [{"name": "cancel_order", "arguments": {"order_id": "O001"}}]
+        self.assertEqual(grade_turn(required, 1, row, self.shop.initial, [first], first["calls"])["required_hits"], 0)
+
+    def test_blocked_recalls_consume_the_tool_budget(self):
+        self.start()
+        attempts = [calls_message(("cancel_order", {"order_id": "O001"}), start=i + 10) for i in range(7)]
+        row, _ = self.turn(1, [verdict("no"), *attempts, message("호출되면 안 됩니다.")], "거절")
+        self.assertEqual(row["tool_count"], graph_v2.MAX_TOOL_CALLS)
+        self.assertTrue(row["loop_limit"])
+        self.assertEqual(len(row["calls"]), graph_v2.MAX_TOOL_CALLS)
+        self.assertTrue(all(c["kind"] == "blocked" for c in row["calls"]))
+        self.assertFalse(self.app.graph.get_state(self.app.config).interrupts)
+        self.assertNotIn("cancel_order", self.shop.counts)
+
+    def test_each_declined_recall_in_a_batch_is_recorded_and_counted(self):
+        self.start()
+        batch = calls_message(("cancel_order", {"order_id": "O001"}), ("cancel_order", {"order_id": "O001"}), start=10)
+        row, _ = self.turn(1, [verdict("no"), batch, message("취소하지 않았습니다.")], "거절")
+        self.assertEqual((row["tool_count"], len(row["calls"])), (2, 2))
+        self.assertTrue(all(c["output"]["error"] == "DECLINED_BY_CUSTOMER" for c in row["calls"]))
+        self.assertFalse(self.app.graph.get_state(self.app.config).interrupts)
+        self.assertNotIn("cancel_order", self.shop.counts)
+
+    def test_v2_prompts_leave_declined_recall_rule_to_structure(self):
+        prompts = load(ROOT / "data/prompts.json")
+        for key, value in prompts.items():
+            if key.startswith("v2_"):
+                self.assertNotIn("고객이 다시 요청하기 전에는 같은 도구를 다시 호출하지 마세요", value)
+        common = prompts["v2_common"]
+        self.assertIn("고객이 실행을 원하고 필요한 조회를 마쳤으면 해당 도구를 직접 호출하세요.", common)
+        self.assertIn("도구 결과가 오기 전에 완료했다고 말하지 마세요.", common)
+        self.assertIn("결과를 받으면 결과에 있는 값만 사용해 실제 처리 상태를 직접 안내하세요.", common)
 
     def test_rejection_can_transfer_to_another_domain_normally(self):
         self.start()
