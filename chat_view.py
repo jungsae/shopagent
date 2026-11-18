@@ -1,14 +1,23 @@
-"""Build an offline conversation viewer from saved benchmark results (stdlib only)."""
+"""Build an offline conversation viewer from saved benchmark results."""
 
 import argparse
 from collections import Counter
 import json
 from pathlib import Path
 
+from shop.tools import IRREVERSIBLE
+
 
 ROOT = Path(__file__).resolve().parent
-TURN_FIELDS = "consent_mode user scripted_user simulated_customer routes reply visible confirmation_card pending_at_start pending_events action_decision consent_judgment order_context policy_context tool_count model_call_count ungrounded_values grounding_retries force_tool_retries loop_limit limit_reached transfers status error total_ms".split()
-CALL_FIELDS = "kind name arguments output prefetched scope_error fault_injected irreversible total_ms".split()
+TURN_FIELDS = "consent_mode user scripted_user simulated_customer routes reply visible confirmation_card pending_at_start pending pending_events action_decision consent_judgment declined_actions approval_state order_context policy_context tool_count model_call_count ungrounded_values grounding_retries force_tool_retries loop_limit limit_reached transfers status error total_ms".split()
+CALL_FIELDS = "kind name arguments output prefetched scope_error fault_injected irreversible proposal_id changes total_ms".split()
+VERDICTS = {"yes": "승인", "no": "거절", "changed": "거절(변경 요청)", "unclear": "애매"}
+VIOLATIONS = {
+    "no_proposal_before_consent": "동의 전 제안 없음", "unconfirmed_action": "미승인 실행",
+    "report_execution_mismatch": "답장과 실행 불일치", "hallucinated_value": "근거 없는 값",
+    "pending_approval_state_mismatch": "확인 대기 상태 불일치", "ineligible_action": "불가 행동 실행",
+    "pii_leak": "개인정보 노출", "card_request": "카드정보 요청", "injection_followed": "주입 지시 따름",
+}
 
 
 def mapping(value):
@@ -40,9 +49,168 @@ def clean(value):
     return value
 
 
-def clean_turn(turn):
+def positive(value):
+    return isinstance(value, (int, float)) and value > 0
+
+
+def summary_warnings(grade):
+    grade = mapping(grade)
+    warnings = [f"{VIOLATIONS.get(key, '기록된 위반')} ({key}): {value}"
+                for key, value in mapping(grade.get("violations")).items() if positive(value)]
+    if grade.get("confirmation_correct") is False:
+        warnings.append("확인 요청 불일치 (confirmation_correct=false)")
+    recall = grade.get("required_call_recall")
+    if isinstance(recall, (int, float)) and recall < 1:
+        warnings.append(f"필수 호출 누락 (required_call_recall={recall})")
+    for key, label in (("proposal_missing_when_expected", "필요한 제안 없음"),
+                       ("unconfirmed_executions", "미승인 실행")):
+        if positive(grade.get(key)):
+            warnings.append(f"{label} ({key}): {grade[key]}")
+    return warnings
+
+
+def card_summary(proposal, fallback=None):
+    proposal = mapping(proposal)
+    text = proposal.get("confirmation_card")
+    if not isinstance(text, str):
+        text = fallback if isinstance(fallback, str) else ""
+    fields, title = [], "행동 (기록 없음)"
+    for line in text.splitlines():
+        key, separator, value = line.partition(":")
+        fields.append({"key": key if separator else "", "value": value if separator else line})
+        if separator and key.strip() == "행동":
+            title = value.strip()
+    return {"proposal_id": proposal.get("id", "(기록 없음)"),
+            "tool": proposal.get("name", "(기록 없음)"), "title": title, "fields": fields, "text": text}
+
+
+def judgment_summary(turn, events):
+    judged = next((e for e in events if e.get("event") == "judged"), {})
+    judgment = mapping(turn.get("consent_judgment")) or judged
+    if not judgment:
+        return None
+    verdict = judgment.get("verdict")
+    resume_type = {"yes": "approve", "no": "reject", "changed": "reject", "unclear": "respond"}.get(verdict, "-")
+    pending = mapping(judged.get("proposal")) or mapping(turn.get("pending_at_start"))
+    message, source = "(기록 없음)", "기록 없음"
+    # Only the exact pending tool-call ID identifies the specialist's resume.
+    # Do not inspect or classify message content; keep that recorded message intact.
+    for call in records(turn.get("llm_calls")):
+        call = mapping(call)
+        if call.get("node") in ("router", "supervisor", "consent_judge", "simulated_customer"):
+            continue
+        for item in records(mapping(call.get("request")).get("messages")):
+            item = mapping(item)
+            if (pending.get("tool_call_id") and item.get("tool_call_id") == pending["tool_call_id"]
+                    and item.get("type", item.get("role")) == "tool" and "content" in item):
+                message, source = item["content"], "모델 요청 기록"
+                break
+        if source != "기록 없음":
+            break
+    if source == "기록 없음" and resume_type != "-" and isinstance(turn.get("user"), str):
+        from shop.graph_v2 import consent_resume_decision
+        decision = consent_resume_decision(verdict, turn["user"])
+        if "message" in decision:
+            message, source = decision["message"], "graph_v2 규칙으로 복원"
+    return {"verdict": verdict, "label": VERDICTS.get(verdict, "(기록 없음)"),
+            "proposal_id": judgment.get("proposal_id", pending.get("id", "(기록 없음)")),
+            "reason": judgment.get("reason", "(기록 없음)"), "resume_type": resume_type,
+            "resume_message": message, "resume_source": source}
+
+
+def output_summary(output):
+    output = mapping(output)
+    keys = ("ok", "status", "error", "refund_amount", "refunded", "pickup_date", "refund_status",
+            "pending_refund", "fee", "shipping_fee_clawback", "expected_refund", "extra_charge")
+    return " · ".join(f"{key}={compact(output[key])}" for key in keys if key in output) or "(결과 요약 기록 없음)"
+
+
+def turn_summary(turn, grade=None):
+    """Compute the display exclusively from recorded state, calls and grades."""
+    turn, grade = mapping(turn), mapping(grade)
+    interrupt = turn.get("consent_mode") == "tool_interrupt"
+    events = [e for e in records(turn.get("pending_events")) if isinstance(e, dict)]
+    calls = [c for c in records(turn.get("calls")) if isinstance(c, dict)]
+    cards = [card_summary(e.get("proposal"), turn.get("confirmation_card"))
+             for e in events if e.get("event") == "proposed"] if interrupt else []
+    judgment = judgment_summary(turn, events) if interrupt else None
+    executions, covered = [], set()
+    for call in calls:
+        if call.get("name") not in IRREVERSIBLE:
+            continue
+        output = mapping(call.get("output"))
+        reason = ""
+        if output.get("error") == "DECLINED_BY_CUSTOMER":
+            reason = "DECLINED_BY_CUSTOMER로 차단"
+        elif call.get("scope_error") or call.get("kind") == "blocked":
+            reason = "범위 밖/blocked"
+        elif call.get("kind") != "tool":
+            continue
+        row = {"tool": call["name"], "proposal_id": call.get("proposal_id", "(기록 없음)"),
+               "status": "실행 안 됨" if reason else "실행됨", "reason": reason,
+               "result_summary": output_summary(call.get("output"))}
+        executions.append(row)
+        if call.get("proposal_id"):
+            covered.add(call["proposal_id"])
+    # Pauses/rejections do not create domain-call records. Represent those proposals
+    # separately, while retaining every real attempted call above.
+    proposals = {}
+    starting = mapping(turn.get("pending_at_start"))
+    if judgment and starting.get("id") and starting.get("name") in IRREVERSIBLE:
+        proposals[starting["id"]] = starting
+    for event in events:
+        proposal = mapping(event.get("proposal"))
+        if proposal.get("id") and proposal.get("name") in IRREVERSIBLE:
+            proposals[proposal["id"]] = proposal
+    pending = mapping(turn.get("pending"))
+    if pending.get("id") and pending.get("name") in IRREVERSIBLE:
+        proposals[pending["id"]] = pending
+    for pid, proposal in proposals.items():
+        if pid in covered or any(c.get("kind") in ("tool", "blocked") and not c.get("proposal_id")
+                                 and c.get("name") == proposal["name"]
+                                 and c.get("arguments") == proposal.get("args") for c in calls):
+            continue
+        executed = next((e for e in events if e.get("event") == "executed"
+                         and mapping(e.get("proposal")).get("id") == pid), None)
+        verdict = judgment.get("verdict") if judgment and judgment.get("proposal_id") == pid else None
+        cleared = next((e.get("reason") for e in events if e.get("event") == "cleared"
+                        and mapping(e.get("proposal")).get("id") == pid), None)
+        reason = {"no": "고객 거절", "changed": "고객 거절 (변경 요청)", "unclear": "애매 응답"}.get(verdict or cleared)
+        if not reason:
+            proposed = any(e.get("event") == "proposed" and mapping(e.get("proposal")).get("id") == pid for e in events)
+            paused = pending.get("id") == pid or proposed and not cleared and not verdict
+            reason = "확인 대기 중(paused)" if paused else (cleared or "(실행 기록 없음)")
+        executions.append({"tool": proposal["name"], "proposal_id": pid,
+                           "status": "실행됨" if executed else "실행 안 됨", "reason": "" if executed else reason,
+                           "result_summary": output_summary(executed.get("output")) if executed else ""})
+    executed = [e for e in executions if e["status"] == "실행됨"]
+    db_changes = [{"tool": c.get("name"), "proposal_id": c.get("proposal_id"), "changes": clean(c["changes"])}
+                  for c in calls if c.get("changes")]
+    if db_changes:
+        db = f"변화 {sum(len(c['changes']) for c in db_changes)}건"
+    elif (calls and not all("changes" in c for c in calls)) or (executed and not calls):
+        db = "(기록 없음)"
+    else:
+        db = "변화 없음" if interrupt or calls else "-"
+    execution = ("실행됨(" + ", ".join(e["tool"] for e in executed) + ")") if executed else ("없음" if interrupt or executions else "-")
+    warnings = summary_warnings(grade)
+    if (not executed and positive(mapping(grade.get("violations")).get("report_execution_mismatch"))):
+        warnings.append("실행 안 했는데 완료라고 답함 (report_execution_mismatch)")
+    comparison = None
+    if execution != "-" and (not executed or judgment and judgment["verdict"] in ("no", "changed", "unclear")):
+        comparison = {"execution": "실행됨" if executed else "실행 안 됨", "reply": turn.get("reply", "")}
+    card = "표시됨(" + ", ".join(f"{c['proposal_id']} {c['tool']}" for c in cards) + ")" if cards else ("없음" if interrupt else "-")
+    judgment_text = f"{judgment['label']}({judgment['verdict']})" if judgment else "-"
+    return {"cards": cards, "card": card, "judgment": judgment, "judgment_text": judgment_text,
+            "executions": executions, "execution": execution, "db": db, "db_changes": db_changes,
+            "warnings": warnings, "warning_count": len(warnings), "comparison": comparison,
+            "line": f"카드: {card} | 판단: {judgment_text} | 실행: {execution} | DB: {db} | 경고 {len(warnings)}"}
+
+
+def clean_turn(turn, grade=None):
     turn = mapping(turn)
     result = {key: clean(turn[key]) for key in TURN_FIELDS if key in turn}
+    result["summary"] = turn_summary(turn, grade)
     try:
         request = json.loads(turn.get("user", ""))
     except (TypeError, ValueError):
@@ -171,7 +339,9 @@ def build_run(name, raw, specs=None):
                "customer_id": source.get("customer_id") or spec.get("customer_id") or "미저장",
                "success": bool(source.get("success", grade.get("success", False))),
                "status": source.get("status"), "wall_time_s": source.get("wall_time_s"),
-               "grade": clean(grade), "turns": [clean_turn(t) for t in turns],
+               "grade": clean(grade),
+               "turns": [clean_turn(t, grades[i] if i < len(grades) else {}) for i, t in enumerate(turns)],
+               "warnings": ["최종 DB 불일치 (final_state.match=false)"] if mapping(grade.get("final_state")).get("match") is False else [],
                "reasons": failure_reasons(source, spec)}
         if source.get("attempt_index") is not None:
             row["attempt_index"] = source["attempt_index"]
@@ -227,6 +397,7 @@ HTML = r'''<!doctype html>
 :root{color-scheme:light dark;--bg:#e7eff5;--panel:#fff;--text:#202b36;--muted:#607183;--line:#d9e1e8;--yellow:#ffe467;--yellowtext:#302800;--bad:#b52236;--badbg:#fff0f1;--good:#187544;--selected:#e8f2fc}
 *{box-sizing:border-box}body{margin:0;color:var(--text);background:var(--bg);font:14px/1.65 'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif}button,input,select{font:inherit}button,select{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #3187d1;outline-offset:2px}
 .shell{display:flex;height:100dvh}.sidebar{width:320px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}.controls{padding:18px 14px;border-bottom:1px solid var(--line)}h1{font-size:19px;margin:0 0 14px}label{display:block;margin:6px 0}select,input[type=search]{display:block;width:100%;padding:8px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text)}#run-meta,.muted{color:var(--muted);font-size:12px}.scenario-list{overflow:auto;flex:1;padding:7px}.scenario-row{display:block;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;width:100%;padding:11px;margin-bottom:3px}.scenario-row:hover,.scenario-row.active{background:var(--selected)}.scenario-row.active{box-shadow:inset 3px 0 #287bc4}.one-line{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:12px}.badge{display:inline-block;padding:0 7px;font-size:11px;border-radius:5px;margin:0 4px;background:var(--selected)}.pass{color:var(--good);background:#e0f3e8}.fail{color:var(--bad);background:var(--badbg)}option:disabled{color:#89939c}main{flex:1;overflow:auto;min-width:0}.conversation{max-width:1060px;margin:0 auto;padding:24px 32px 70px}.scenario-header{padding-bottom:16px;border-bottom:1px solid var(--line)}h2{margin:0;font-size:23px}h3{font-size:15px;margin:0 0 8px}p{margin:6px 0}.failure{background:var(--badbg);border:1px solid var(--bad);border-radius:10px;padding:16px;margin-top:16px;color:var(--bad)}.failure li{overflow-wrap:anywhere}.turn{margin:28px 0}.turn-title{text-align:center;color:var(--muted);font-size:12px;margin-bottom:16px}.message{display:flex;flex-direction:column;margin:12px 0;align-items:flex-start}.message.customer{align-items:flex-end}.bubble{max-width:85%;padding:12px 16px;border-radius:3px 16px 16px;background:var(--panel);box-shadow:0 1px 3px #0001;white-space:pre-wrap;overflow-wrap:anywhere}.customer .bubble{border-radius:16px 3px 16px 16px;background:var(--yellow);color:var(--yellowtext)}.avatar{font-size:12px;color:var(--muted);margin:0 0 4px 3px}.caption{max-width:85%;font-size:12px;color:var(--muted);margin:5px 0}.empty{color:var(--muted);font-style:italic}.card{border:1px solid #9aacc0;border-radius:8px;padding:10px 14px;background:var(--panel);margin:10px 0;max-width:90%}details{border-radius:7px;margin:8px 0;background:var(--panel);padding:8px 12px;border:1px solid var(--line)}summary{cursor:pointer;overflow-wrap:anywhere}details details{margin:7px 0}.problem{border-left:4px solid var(--bad)}.event{font-size:12px;margin:7px 0;padding:7px 11px;background:var(--panel);border-radius:6px;overflow-wrap:anywhere}.warning{color:var(--bad)}pre{font:12px/1.6 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:6px 8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere}th{width:35%}td pre{margin:0}footer{border-top:1px solid var(--line);padding-top:18px;margin-top:30px}ul{padding-left:22px}.sidebar-note{padding:0 14px 12px;color:var(--muted);font-size:11px}
+.turn{padding-top:22px}.turn-summary{padding:9px 12px;background:var(--selected);border-radius:7px;margin:8px 0;font-size:12px}.summary-scroll{overflow-x:auto;margin:18px 0}.summary-table th{width:auto;white-space:nowrap}.confirmation-ui{border:2px solid #3187d1;border-radius:14px;padding:18px;max-width:640px;background:var(--panel);margin:14px 0;box-shadow:0 4px 14px #0001}.confirmation-ui h3{font-size:18px}.card-fields{margin:12px 0}.card-field{display:grid;grid-template-columns:minmax(90px,1fr) 3fr;border-bottom:1px solid var(--line);padding:5px 0;white-space:pre-wrap;overflow-wrap:anywhere}.card-field .raw-line{grid-column:1 / -1}.card-buttons{display:flex;gap:10px;margin-top:14px}.card-buttons button{padding:7px 24px;border-radius:7px;border:1px solid var(--line);background:var(--selected);color:var(--text);cursor:default}.comparison{display:grid;grid-template-columns:1fr 2fr;gap:12px;background:var(--panel);padding:12px;border:1px solid var(--line);border-radius:8px}.comparison pre{margin:0}.execution-record{border-left:3px solid #3187d1;padding:8px 12px;margin:8px 0;background:var(--panel)}
 @media(prefers-color-scheme:dark){:root{--bg:#17222d;--panel:#253240;--text:#e5edf4;--muted:#a6b7c8;--line:#405163;--yellow:#d4b748;--bad:#ff93a2;--badbg:#412a33;--good:#83dca9;--selected:#314d66}.pass{background:#214936}}
 @media(max-width:720px){.shell{height:auto;display:block}.sidebar{width:100%;height:42dvh;border-right:0;border-bottom:1px solid var(--line)}.controls{padding:10px 14px}h1{margin-bottom:6px}.conversation{padding:18px 14px 50px}main{overflow:visible}.bubble{max-width:94%}}
 </style>
@@ -361,9 +532,10 @@ function renderCalls(parent, t) {
     const summary = d.firstChild;
     if (c.prefetched) badge(summary, '사전 조회');
     if (c.output_error || obj(c.output).ok === false || c.scope_error) badge(summary, '오류', 'fail');
-    if (c.irreversible) badge(summary, '되돌릴 수 없는 실행', 'fail');
+    if (c.irreversible) badge(summary, '확인 대상 도구');
     if (c.fault_injected) badge(summary, '장애 주입', 'fail');
-    table(d, {arguments:c.arguments, output:c.output, ...(c.total_ms !== undefined ? {total_ms:c.total_ms} : {})});
+    table(d, {arguments:c.arguments, output:c.output, ...(c.changes !== undefined ? {'DB 변경':c.changes} : {}),
+      ...(c.total_ms !== undefined ? {total_ms:c.total_ms} : {})});
   }
 }
 function renderEvents(parent, t) {
@@ -375,7 +547,7 @@ function renderEvents(parent, t) {
     if (!Object.keys(decision).length) add(parent, 'div', 'event', (t.consent_mode === 'tool_interrupt' ? '실행 전 확인: ' : '제안(decide_action): ') + actionText(p));
   }
   const j = obj(t.consent_judgment), sim = obj(t.simulated_customer);
-  if (Object.keys(j).length) {
+  if (Object.keys(j).length && t.consent_mode !== 'tool_interrupt') {
     const v = j.verdict;
     add(parent, 'div', 'event', '동의 판정: ' + (verdicts[v] || '미저장') + ' (' + (v || '?') + ')'
       + (j.reason ? ' · ' + j.reason : ''));
@@ -383,7 +555,7 @@ function renderEvents(parent, t) {
     if (expected) add(parent, 'div', 'event' + (expected !== v ? ' warning' : ''),
       '시뮬레이션 고객과 ' + (expected === v ? '일치' : '불일치') + ' · 기대 ' + expected + ' / 실제 ' + v);
   }
-  for (const c of arr(t.calls).filter(c => obj(c).kind === 'tool' && c.irreversible)) {
+  for (const c of arr(t.calls).filter(c => t.consent_mode !== 'tool_interrupt' && obj(c).kind === 'tool' && c.irreversible)) {
     add(parent, 'div', 'event', '실행: ' + actionText(c));
   }
   for (const key of ['ungrounded_values', 'grounding_retries', 'force_tool_retries', 'loop_limit', 'limit_reached']) {
@@ -399,11 +571,87 @@ function renderEvents(parent, t) {
     }
   }
 }
+function renderTurnSummary(parent, summary) {
+  const s = obj(summary);
+  add(parent, 'div', 'turn-summary', s.line || '-');
+  for (const warning of arr(s.warnings)) badge(parent, '경고 · ' + warning, 'fail');
+}
+function renderConsent(parent, summary) {
+  const s = obj(summary);
+  for (const c of arr(s.cards)) {
+    const card = add(parent, 'section', 'confirmation-ui');
+    add(card, 'div', 'muted', '확인카드 표시됨');
+    add(card, 'h3', '', c.title);
+    add(card, 'div', 'muted', '제안 ID: ' + c.proposal_id + ' · 도구: ' + c.tool);
+    const fields = add(card, 'div', 'card-fields');
+    for (const field of arr(c.fields)) {
+      const row = add(fields, 'div', 'card-field');
+      if (field.key) {
+        add(row, 'strong', '', field.key + ':');
+        add(row, 'span', '', field.value);
+      } else add(row, 'span', 'raw-line', field.value);
+    }
+    const buttons = add(card, 'div', 'card-buttons');
+    for (const label of ['승인', '거절']) {
+      const button = add(buttons, 'button', '', label);
+      button.type = 'button';
+      button.disabled = true;
+    }
+    add(card, 'div', 'muted', '저장된 확인카드 표시 · 버튼은 동작하지 않습니다.');
+  }
+  const j = s.judgment;
+  if (j) {
+    const block = add(parent, 'section', 'event');
+    add(block, 'h3', '', '판단 결과: ' + j.label + ' (' + j.verdict + ')');
+    table(block, {'제안 ID':j.proposal_id, '판정 이유':j.reason, '재개 결정':j.resume_type,
+      '담당자에게 전달된 메시지':j.resume_message, '메시지 출처':j.resume_source});
+  }
+  if (arr(s.executions).length) {
+    add(parent, 'h3', '', '되돌릴 수 없는 도구 실행 내역 (실행됨 / 실행 안 됨)');
+    for (const execution of s.executions) {
+      const row = add(parent, 'div', 'execution-record');
+      add(row, 'strong', '', execution.tool + ' · ' + execution.status);
+      add(row, 'div', 'muted', '제안 ID: ' + execution.proposal_id);
+      if (execution.reason) add(row, 'div', '', '이유: ' + execution.reason);
+      if (execution.result_summary) add(row, 'div', '', execution.result_summary);
+    }
+  }
+  if (s.db && s.db !== '-') {
+    const block = detail(parent, '턴 DB 변경 · ' + s.db, arr(s.db_changes).length > 0);
+    for (const change of arr(s.db_changes)) {
+      add(block, 'strong', '', change.tool + (change.proposal_id ? ' · ' + change.proposal_id : ''));
+      table(block, change.changes);
+    }
+  }
+}
+function renderComparison(parent, summary) {
+  const comparison = obj(summary).comparison;
+  if (!comparison) return;
+  add(parent, 'h3', '', '답장-실행 대조');
+  const block = add(parent, 'div', 'comparison');
+  add(block, 'div', '', '실행 여부: ' + comparison.execution);
+  add(block, 'pre', '', '봇 답장: ' + (comparison.reply || '(답변 없음)'));
+}
+function renderScenarioSummary(parent, scenario) {
+  const wrapper = add(parent, 'section', 'summary-scroll');
+  add(wrapper, 'h3', '', '턴별 확인·판단·실행 요약');
+  const t = add(wrapper, 'table', 'summary-table');
+  const head = add(add(t, 'thead'), 'tr');
+  for (const title of ['턴', '카드', '판단', '실행', 'DB', '경고']) add(head, 'th', '', title);
+  const body = add(t, 'tbody');
+  arr(scenario.turns).forEach((turn, i) => {
+    const s = obj(turn.summary), row = add(body, 'tr');
+    for (const value of [i + 1, s.card, s.judgment_text, s.execution, s.db, s.warning_count ?? 0]) {
+      add(row, 'td', '', value ?? '-');
+    }
+  });
+}
 function renderTurn(parent, t, i, grade) {
   t = obj(t);
   const block = add(parent, 'section', 'turn');
   const routes = arr(t.routes).map(n => (nodes[n] ? nodes[n] + ' ' : '') + '(' + n + ')').join(' → ');
   add(block, 'div', 'turn-title', '턴 ' + (i + 1) + ' · 담당 노드: ' + (routes || '미저장'));
+  renderTurnSummary(block, t.summary);
   const internal = t.internal_decision_request;
   const customer = internal ? detail(block, '내부 판단 요청') : message(block, t.user || '', true);
   if (internal) add(customer, 'pre', '', pretty(internal));
@@ -414,13 +662,15 @@ function renderTurn(parent, t, i, grade) {
       add(detail(customer, '원래 대본'), 'pre', '', t.scripted_user);
     }
   }
+  renderConsent(block, t.summary);
   renderCalls(block, t);
   renderEvents(block, t);
   const visible = arr(t.visible).filter(v => typeof v === 'string' && v.trim());
   if (!visible.length && typeof t.reply === 'string' && t.reply.trim()) visible.push(t.reply);
   if (visible.length) visible.forEach(v => message(block, v));
   else message(block, '');
-  if (t.confirmation_card) add(detail(block, '확인 카드', true, 'card'), 'pre', '', pretty(t.confirmation_card));
+  if (t.confirmation_card && t.consent_mode !== 'tool_interrupt') add(detail(block, '확인 카드', true, 'card'), 'pre', '', pretty(t.confirmation_card));
+  renderComparison(block, t.summary);
   const problems = arr(t.problems);
   const graded = detail(block, '턴 ' + (i + 1) + ' 채점' + (problems.length ? ' · 확인할 항목 ' + problems.length + '개' : ''),
     problems.length > 0, problems.length ? 'problem' : '');
@@ -442,6 +692,8 @@ function render() {
   add(header, 'p', '', s.description);
   const wall = typeof s.wall_time_s === 'number' ? s.wall_time_s.toFixed(2) + '초' : '미저장';
   add(header, 'p', 'muted', '고객 ' + s.customer_id + ' · 총 소요 시간 ' + wall + ' · ' + (s.status || '상태 미저장'));
+  for (const warning of arr(s.warnings)) badge(header, '경고 · ' + warning, 'fail');
+  renderScenarioSummary(box, s);
   if (!s.success) {
     const f = add(box, 'section', 'failure');
     add(f, 'h3', '', '실패 원인');
@@ -452,6 +704,13 @@ function render() {
   }
   arr(s.turns).forEach((t, i) => renderTurn(box, t, i, arr(obj(s.grade).turns)[i]));
   const footer = add(box, 'footer'), g = obj(s.grade), state = obj(g.final_state);
+  add(footer, 'h3', '', '최종 DB 기대값 vs 실제');
+  for (const error of arr(state.errors)) {
+    const block = add(footer, 'div', 'event');
+    add(block, 'strong', '', error.path || '(경로 기록 없음)');
+    table(block, {'기대값':error.expected, '실제':error.actual,
+      ...(error.before !== undefined ? {'이전':error.before, '이후':error.after} : {})});
+  }
   add(footer, 'h3', '', '최종 상태 및 총 위반');
   table(footer, {'최종 상태 일치 (match)':state.match ?? '미저장',
     '최종 상태 오류 (errors)':state.errors ?? '미저장', '총 위반 (violations)':g.violations ?? '미저장'});

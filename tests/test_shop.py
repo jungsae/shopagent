@@ -4092,6 +4092,239 @@ class FixtureTests(unittest.TestCase):
 
 
 class ChatViewTests(unittest.TestCase):
+    def interrupt_turn(self, verdict=None):
+        proposal = {"id": "proposal-1", "name": "request_refund", "tool_call_id": "call-1",
+                    "args": {"order_id": "O004", "reason": "단순변심"},
+                    "confirmation_card": "[처리 내용 확인]\n행동: 반품 신청\n주문번호: O004\n상품: 후드 | item_id: O004-1\n예상 환불액: 52000원"}
+        turn = {"consent_mode": "tool_interrupt", "user": "날짜를 바꿔 주세요.", "reply": "저장된 봇 답장",
+                "calls": [], "pending": proposal if verdict is None else None,
+                "pending_at_start": proposal if verdict else None,
+                "confirmation_card": proposal["confirmation_card"], "approval_state": "고객 확인 대기" if verdict is None else "",
+                "pending_events": [{"event": "proposed", "proposal": proposal}] if verdict is None else [
+                    {"event": "judged", "proposal": proposal, "verdict": verdict, "reason": "기록된 판정 이유"},
+                    {"event": "cleared", "proposal": proposal, "reason": verdict}]}
+        if verdict:
+            turn["consent_judgment"] = {"proposal_id": proposal["id"], "verdict": verdict, "reason": "기록된 판정 이유"}
+        return turn
+
+    def test_interrupt_proposed_card_has_exact_fields_and_pause(self):
+        turn = self.interrupt_turn()
+        before = copy.deepcopy(turn)
+        summary = chat_view.clean_turn(turn)["summary"]
+        card = summary["cards"][0]
+        self.assertEqual(card["title"], "반품 신청")
+        self.assertEqual(card["fields"][3], {"key": "상품", "value": " 후드 | item_id: O004-1"})
+        self.assertEqual(card["text"], turn["confirmation_card"])
+        self.assertEqual(summary["card"], "표시됨(proposal-1 request_refund)")
+        self.assertEqual(summary["executions"][0]["reason"], "확인 대기 중(paused)")
+        self.assertEqual(summary["execution"], "없음")
+        self.assertEqual(summary["db"], "변화 없음")
+        self.assertIn("카드: 표시됨", summary["line"])
+        self.assertEqual(turn, before)
+
+    def test_changed_judgment_rejects_and_derives_shared_resume_message(self):
+        from shop.graph_v2 import consent_resume_decision
+        turn = self.interrupt_turn("changed")
+        summary = chat_view.clean_turn(turn)["summary"]
+        judgment = summary["judgment"]
+        self.assertEqual(judgment["label"], "거절(변경 요청)")
+        self.assertEqual(judgment["verdict"], "changed")
+        self.assertEqual(judgment["resume_type"], "reject")
+        self.assertEqual(judgment["reason"], "기록된 판정 이유")
+        self.assertEqual(judgment["resume_message"], consent_resume_decision("changed", turn["user"])["message"])
+        self.assertEqual(judgment["resume_source"], "graph_v2 규칙으로 복원")
+        self.assertEqual(summary["cards"], [])  # The persisted old card is not emitted again.
+        self.assertEqual(summary["executions"][0]["status"], "실행 안 됨")
+        self.assertEqual(summary["comparison"], {"execution": "실행 안 됨", "reply": turn["reply"]})
+
+    def test_recorded_resume_message_is_preferred_and_not_classified(self):
+        turn = self.interrupt_turn("changed")
+        turn["llm_calls"] = [{"node": "refund_exchange", "request": {"messages": [
+            {"type": "tool", "tool_call_id": "unrelated", "content": "다른 호출"},
+            {"type": "tool", "tool_call_id": "call-1", "content": "원본 메시지: 거절 및 전달 내용"}]}}]
+        summary = chat_view.clean_turn(turn)["summary"]
+        self.assertEqual(summary["judgment"]["resume_message"], "원본 메시지: 거절 및 전달 내용")
+        self.assertEqual(summary["judgment"]["resume_source"], "모델 요청 기록")
+
+    def test_no_and_unclear_judged_events_resume_without_judgment_field(self):
+        from shop.graph_v2 import consent_resume_decision
+        for verdict, label, decision, reason in (("no", "거절", "reject", "고객 거절"),
+                                                  ("unclear", "애매", "respond", "애매 응답")):
+            with self.subTest(verdict=verdict):
+                turn = self.interrupt_turn(verdict)
+                del turn["consent_judgment"]
+                summary = chat_view.clean_turn(turn)["summary"]
+                self.assertEqual(summary["judgment"]["label"], label)
+                self.assertEqual(summary["judgment"]["resume_type"], decision)
+                self.assertEqual(summary["judgment"]["resume_message"], consent_resume_decision(verdict, turn["user"])["message"])
+                self.assertEqual(summary["executions"][0]["reason"], reason)
+
+    def test_resume_message_is_missing_when_not_derivable(self):
+        turn = self.interrupt_turn("changed")
+        del turn["user"]
+        self.assertEqual(chat_view.clean_turn(turn)["summary"]["judgment"]["resume_message"], "(기록 없음)")
+
+    def test_approve_executes_with_recorded_result_and_db_changes(self):
+        turn = self.interrupt_turn("yes")
+        changes = {"orders.O004.status": {"before": "배송완료", "after": "반품접수"}}
+        turn["calls"] = [{"kind": "tool", "name": "request_refund", "proposal_id": "proposal-1",
+                          "output": {"ok": True, "status": "반품접수", "refund_amount": 52000, "refunded": 0},
+                          "changes": changes}]
+        cleaned = chat_view.clean_turn(turn)
+        summary = cleaned["summary"]
+        self.assertEqual(summary["judgment"]["resume_type"], "approve")
+        self.assertEqual(summary["judgment"]["resume_message"], "(기록 없음)")
+        self.assertEqual(summary["executions"][0]["status"], "실행됨")
+        self.assertEqual(len(summary["executions"]), 1)
+        for text in ('ok=true', 'status="반품접수"', 'refund_amount=52000', 'refunded=0'):
+            self.assertIn(text, summary["executions"][0]["result_summary"])
+        self.assertEqual(summary["db_changes"][0]["changes"], changes)
+        self.assertEqual(summary["db"], "변화 1건")
+        self.assertEqual(cleaned["calls"][0]["changes"], changes)
+        self.assertEqual(cleaned["calls"][0]["proposal_id"], "proposal-1")
+        self.assertIsNone(summary["comparison"])
+
+    def test_all_irreversible_tools_use_names_and_recorded_outputs(self):
+        for name in IRREVERSIBLE:
+            with self.subTest(name=name):
+                turn = {"consent_mode": "tool_interrupt", "calls": [
+                    {"kind": "tool", "name": name, "output": {"ok": True, "pickup_date": "2026-10-23"}}]}
+                row = chat_view.clean_turn(turn)["summary"]
+                self.assertEqual(row["executions"][0]["status"], "실행됨")
+                self.assertIn('pickup_date="2026-10-23"', row["executions"][0]["result_summary"])
+                self.assertEqual(row["db"], "(기록 없음)")
+
+    def test_declined_customer_call_is_blocked_even_with_tool_kind(self):
+        for kind in ("blocked", "tool"):
+            with self.subTest(kind=kind):
+                turn = self.interrupt_turn("changed")
+                turn["calls"] = [{"kind": kind, "name": "request_refund", "proposal_id": "proposal-1",
+                                  "output": {"ok": False, "error": "DECLINED_BY_CUSTOMER"}, "changes": {}}]
+                summary = chat_view.clean_turn(turn)["summary"]
+                self.assertEqual(len(summary["executions"]), 1)
+                self.assertEqual(summary["executions"][0]["reason"], "DECLINED_BY_CUSTOMER로 차단")
+                self.assertEqual(summary["executions"][0]["status"], "실행 안 됨")
+                self.assertEqual(summary["execution"], "없음")
+
+    def test_out_of_scope_and_generic_blocked_calls_are_not_executions(self):
+        for fields in ({"kind": "tool", "scope_error": True}, {"kind": "blocked"}):
+            with self.subTest(fields=fields):
+                summary = chat_view.clean_turn({"consent_mode": "tool_interrupt", "calls": [
+                    {"name": "cancel_order", "output": {"error": "scope"}, **fields}]})["summary"]
+                self.assertEqual(summary["executions"][0]["status"], "실행 안 됨")
+                self.assertEqual(summary["executions"][0]["reason"], "범위 밖/blocked")
+
+    def test_event_only_execution_uses_output_without_call_record(self):
+        turn = self.interrupt_turn("yes")
+        turn["pending_events"].append({"event": "executed", "proposal": turn["pending_at_start"],
+                                       "output": {"ok": True, "refund_amount": 52000}})
+        summary = chat_view.clean_turn(turn)["summary"]
+        self.assertEqual(summary["executions"][0]["status"], "실행됨")
+        self.assertIn("refund_amount=52000", summary["executions"][0]["result_summary"])
+        self.assertEqual(summary["db"], "(기록 없음)")
+
+    def test_warnings_use_only_structured_grade_fields_and_never_reply_text(self):
+        grade = {"violations": {"no_proposal_before_consent": 2, "hallucinated_value": 1,
+                                 "report_execution_mismatch": 0, "ignored_zero": 0, "ignored_negative": -1},
+                 "confirmation_correct": False, "required_call_recall": 0.5,
+                 "proposal_missing_when_expected": 1, "unconfirmed_executions": 1}
+        for text in ("완료했습니다. 승인 거절 네 아니요", "무관한 고객 문장", ""):
+            with self.subTest(text=text):
+                turn = self.interrupt_turn("changed")
+                turn.update(user=text, reply=text)
+                summary = chat_view.clean_turn(turn)["summary"]
+                self.assertEqual(summary["warnings"], [])
+                summary = chat_view.clean_turn(turn, grade)["summary"]
+                self.assertEqual(summary["warning_count"], 6)
+                self.assertTrue(any("동의 전 제안 없음 (no_proposal_before_consent)" in w for w in summary["warnings"]))
+                self.assertFalse(any("실행 안 했는데 완료라고 답함" in w for w in summary["warnings"]))
+                self.assertFalse(any("ignored" in w for w in summary["warnings"]))
+        grade["violations"]["report_execution_mismatch"] = 1
+        summary = chat_view.clean_turn(self.interrupt_turn("changed"), grade)["summary"]
+        self.assertIn("실행 안 했는데 완료라고 답함 (report_execution_mismatch)", summary["warnings"])
+
+    def test_rejected_card_and_new_card_in_same_turn_keep_proposal_identity(self):
+        turn = self.interrupt_turn("changed")
+        new = {"id": "proposal-2", "name": "schedule_return_pickup", "args": {"pickup_date": "2026-10-23"},
+               "confirmation_card": "행동: 반품 수거 예약\n수거일: 2026-10-23"}
+        turn["pending"] = new
+        turn["pending_events"].append({"event": "proposed", "proposal": new})
+        summary = chat_view.clean_turn(turn)["summary"]
+        self.assertEqual(summary["card"], "표시됨(proposal-2 schedule_return_pickup)")
+        self.assertEqual(summary["judgment"]["proposal_id"], "proposal-1")
+        self.assertEqual([(e["proposal_id"], e["reason"]) for e in summary["executions"]],
+                         [("proposal-1", "고객 거절 (변경 요청)"), ("proposal-2", "확인 대기 중(paused)")])
+
+    def test_legacy_proposal_and_v1_summaries_have_inapplicable_columns(self):
+        for turn in ({"user": "고객", "reply": "완료"}, {"consent_mode": "proposal", "user": "고객",
+                      "action_decision": {"kind": "propose", "action": "cancel_order", "arguments": {"order_id": "O001"}}}):
+            with self.subTest(turn=turn):
+                summary = chat_view.clean_turn(turn)["summary"]
+                for key in ("card", "judgment_text", "execution", "db"):
+                    self.assertEqual(summary[key], "-")
+                self.assertEqual(summary["warnings"], [])
+
+    def test_warning_badges_depend_only_on_saved_structured_fields(self):
+        turn = self.interrupt_turn("changed")
+        turn["reply"] = "반품 신청이 완료되었습니다. 환불 금액은 52,000원입니다."
+        turn["user"] = "승인합니다. 실행 완료 거절"
+        self.assertEqual(chat_view.clean_turn(turn)["summary"]["warnings"], [])
+        grade = {"violations": {"no_proposal_before_consent": 1, "report_execution_mismatch": 0,
+                                 "hallucinated_value": 2, "unconfirmed_action": 0},
+                 "confirmation_correct": False, "required_call_recall": 0.5,
+                 "proposal_missing_when_expected": 1, "unconfirmed_executions": 1}
+        summary = chat_view.clean_turn(turn, grade)["summary"]
+        self.assertEqual(summary["warning_count"], 6)
+        warnings = " | ".join(summary["warnings"])
+        for key in ("no_proposal_before_consent", "hallucinated_value", "confirmation_correct", "required_call_recall",
+                    "proposal_missing_when_expected", "unconfirmed_executions"):
+            self.assertIn(key, warnings)
+        self.assertNotIn("실행 안 했는데 완료라고 답함", warnings)
+        turn["user"], turn["reply"] = "전혀 다른 고객 메시지", "전혀 다른 답장"
+        self.assertEqual(chat_view.clean_turn(turn, grade)["summary"]["warnings"], summary["warnings"])
+
+    def test_false_completion_badge_requires_saved_mismatch_and_no_execution(self):
+        turn = self.interrupt_turn("no")
+        grade = {"violations": {"report_execution_mismatch": 1}}
+        self.assertTrue(any("실행 안 했는데 완료라고 답함" in w for w in chat_view.clean_turn(turn, grade)["summary"]["warnings"]))
+        turn["calls"] = [{"kind": "tool", "name": "cancel_order", "output": {"ok": True}}]
+        self.assertFalse(any("실행 안 했는데 완료라고 답함" in w for w in chat_view.clean_turn(turn, grade)["summary"]["warnings"]))
+
+    def test_scenario_summary_has_graded_counts_and_final_state_warning(self):
+        spec, raw = self.sample()
+        raw["scenarios"][0]["turns"] = [self.interrupt_turn()]
+        raw["scenarios"][0]["grade"]["turns"] = [{"confirmation_correct": False}]
+        scenario = chat_view.build_run("test", raw)["scenarios"][0]
+        self.assertEqual(scenario["turns"][0]["summary"]["warning_count"], 1)
+        self.assertEqual(scenario["warnings"], ["최종 DB 불일치 (final_state.match=false)"])
+        self.assertEqual(scenario["grade"]["final_state"]["errors"][0]["actual"], "주문")
+
+    def test_consent_html_labels_and_readable_hangul_source(self):
+        html = chat_view.render_html({"runs": []})
+        for label in ("확인카드 표시됨", "판단 결과", "실행 안 됨", "답장-실행 대조", "최종 DB 기대값 vs 실제", "턴별 확인·판단·실행 요약"):
+            self.assertIn(label, html)
+        self.assertIn("button.disabled = true", html)
+        source = Path(chat_view.__file__).read_text(encoding="utf-8")
+        source = source.replace('compact(data).replace("<", "\\\\u003c")', '')
+        self.assertNotRegex(source, r"\\u[0-9a-fA-F]{4}")
+
+    def test_real_chain01_card_and_changed_rejection_read_only(self):
+        path = ROOT / "runs/full-v2-gemma-tool-consent/results.json"
+        if not path.is_file():
+            self.skipTest("저장된 tool_interrupt 실행 없음")
+        raw = chat_view.read_json(path)
+        chain = next(s for s in raw["scenarios"] if s["id"] == "chain-01")
+        scenario = chat_view.build_run("real", {"graph": "v2", "scenarios": [chain]})["scenarios"][0]
+        third, fourth = (scenario["turns"][i]["summary"] for i in (2, 3))
+        self.assertEqual(third["card"], "표시됨(proposal-1 request_refund)")
+        self.assertEqual(fourth["judgment"]["verdict"], "changed")
+        self.assertEqual(fourth["judgment"]["resume_type"], "reject")
+        self.assertEqual(fourth["judgment"]["resume_source"], "모델 요청 기록")
+        self.assertEqual(fourth["executions"][0]["status"], "실행 안 됨")
+        self.assertEqual(fourth["comparison"]["execution"], "실행 안 됨")
+        self.assertEqual(chain["grade"]["turns"][3]["violations"]["report_execution_mismatch"], 0)
+        self.assertFalse(any("실행 안 했는데 완료라고 답함" in w for w in fourth["warnings"]))
+
     def test_router_and_legacy_handoffs_remain_readable(self):
         html = chat_view.render_html({"runs": []})
         self.assertIn("router:'라우터'", html)
@@ -4151,7 +4384,7 @@ class ChatViewTests(unittest.TestCase):
         self.assertNotIn("llm_calls", row["turns"][0])
         self.assertNotIn("memory_after_warmup", row["turns"][0])
         call = row["turns"][0]["calls"][0]
-        self.assertNotIn("changes", call)
+        self.assertEqual(call["changes"], {"secret_diff": 1})
         self.assertIn("이후 생략", call["output"])
         self.assertLess(len(call["output"]), 4100)
         self.assertEqual(raw, before)

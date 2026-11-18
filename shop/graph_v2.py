@@ -568,7 +568,7 @@ class ScenarioGraph:
         if decision.get("type") not in ("approve", "reject", "respond"):
             raise ValueError("Expected approve/reject/respond")
         if decision["type"] == "reject" and "message" not in decision:
-            decision = {**decision, "message": "고객이 승인하지 않아 실행하지 않았습니다. 고객 답변: " + customer_text}
+            decision = {**decision, "message": consent_resume_decision("no", customer_text)["message"]}
         if decision["type"] in ("reject", "respond") and not isinstance(decision.get("message"), str):
             raise ValueError("A rejection or response requires a message")
         ctx = _ctx or self._context(turn_index)
@@ -630,7 +630,11 @@ def judge_consent(ctx, customer_text):
     validate_arguments(arguments, JUDGE_CONSENT["function"]["parameters"])
     ctx.consent_judgment = {"proposal_id": pending["id"], **arguments}
     ctx.event("judged", pending, **arguments)
-    verdict = arguments["verdict"]
+    return consent_resume_decision(arguments["verdict"], customer_text)
+
+
+def consent_resume_decision(verdict, customer_text):
+    """Map a recorded consent verdict to the deterministic specialist resume."""
     if verdict == "yes":
         return {"type": "approve"}
     if verdict in ("no", "changed"):
