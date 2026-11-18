@@ -1,0 +1,3561 @@
+{
+  "buckets": [
+    [
+      "A",
+      "escalate_to_human 누락 / human 라우트 미실행"
+    ],
+    [
+      "B",
+      "handoff/transfer_back_to_supervisor 캡(현재 1회) 가능"
+    ],
+    [
+      "C",
+      "step>=8 또는 tools>=6 리밋 적중"
+    ],
+    [
+      "D",
+      "missing required reply / reply_must_include"
+    ],
+    [
+      "E",
+      "final_state mismatch"
+    ],
+    [
+      "F",
+      "hallucinated_value"
+    ],
+    [
+      "G",
+      "missing refusal phrase"
+    ],
+    [
+      "H",
+      "other"
+    ]
+  ],
+  "runs": [
+    {
+      "run": "g12-native-r1",
+      "n": 60,
+      "n_pass": 46,
+      "n_fail": 14,
+      "primary": {
+        "E": 1,
+        "D": 7,
+        "F": 3,
+        "A": 3
+      },
+      "multi": {
+        "E": 5,
+        "D": 7,
+        "F": 3,
+        "A": 3,
+        "G": 1
+      },
+      "failures": [
+        {
+          "id": "single-12",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O001.status\", \"expected\": \"취소\", \"actual\": \"결제완료\"}, {\"path\": \"payments.O001.refunded\", \"expected\": 30000, \"actual\": 0}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "cancel_order"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-29",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": true,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-03",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-06",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-03",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_refund_status",
+            "get_order"
+          ],
+          "include_missing": [
+            "TRK000000003"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['TRK000000003'] empty_reply_turns=1",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_refund_status",
+            "get_order",
+            "track_shipment"
+          ]
+        },
+        {
+          "id": "handoff-05",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "refund_exchange",
+            "human"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "check_refund_eligibility",
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "handoff-07",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment",
+            "product"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "check_stock"
+          ],
+          "include_missing": [
+            "간편결제"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['간편결제'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "list_payment_methods",
+            "check_stock"
+          ]
+        },
+        {
+          "id": "handoff-08",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-01",
+          "category": "policy",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "G"
+          ],
+          "rft": [
+            "missing refusal phrase",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "불가"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['불가'] empty_reply_turns=0",
+            "rft missing refusal phrase"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility"
+          ]
+        },
+        {
+          "id": "policy-06",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "g12-native-r2",
+      "n": 60,
+      "n_pass": 46,
+      "n_fail": 14,
+      "primary": {
+        "E": 1,
+        "D": 7,
+        "F": 3,
+        "A": 3
+      },
+      "multi": {
+        "E": 5,
+        "D": 7,
+        "F": 3,
+        "A": 3,
+        "G": 1
+      },
+      "failures": [
+        {
+          "id": "single-12",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O001.status\", \"expected\": \"취소\", \"actual\": \"결제완료\"}, {\"path\": \"payments.O001.refunded\", \"expected\": 30000, \"actual\": 0}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "cancel_order"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-29",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": true,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-03",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-06",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-03",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_refund_status",
+            "get_order"
+          ],
+          "include_missing": [
+            "TRK000000003"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['TRK000000003'] empty_reply_turns=1",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_refund_status",
+            "get_order",
+            "track_shipment"
+          ]
+        },
+        {
+          "id": "handoff-05",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "refund_exchange",
+            "human"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "check_refund_eligibility",
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "handoff-07",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment",
+            "product"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "check_stock"
+          ],
+          "include_missing": [
+            "간편결제"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['간편결제'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "list_payment_methods",
+            "check_stock"
+          ]
+        },
+        {
+          "id": "handoff-08",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-01",
+          "category": "policy",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "G"
+          ],
+          "rft": [
+            "missing refusal phrase",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "불가"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['불가'] empty_reply_turns=0",
+            "rft missing refusal phrase"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility"
+          ]
+        },
+        {
+          "id": "policy-06",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "g12-native-r3",
+      "n": 60,
+      "n_pass": 46,
+      "n_fail": 14,
+      "primary": {
+        "E": 1,
+        "D": 7,
+        "F": 3,
+        "A": 3
+      },
+      "multi": {
+        "E": 5,
+        "D": 7,
+        "F": 3,
+        "A": 3,
+        "G": 1
+      },
+      "failures": [
+        {
+          "id": "single-12",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O001.status\", \"expected\": \"취소\", \"actual\": \"결제완료\"}, {\"path\": \"payments.O001.refunded\", \"expected\": 30000, \"actual\": 0}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "cancel_order"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-29",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": true,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-03",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-06",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-03",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_refund_status",
+            "get_order"
+          ],
+          "include_missing": [
+            "TRK000000003"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['TRK000000003'] empty_reply_turns=1",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_refund_status",
+            "get_order",
+            "track_shipment"
+          ]
+        },
+        {
+          "id": "handoff-05",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "refund_exchange",
+            "human"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "check_refund_eligibility",
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "handoff-07",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment",
+            "product"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "check_stock"
+          ],
+          "include_missing": [
+            "간편결제"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['간편결제'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "list_payment_methods",
+            "check_stock"
+          ]
+        },
+        {
+          "id": "handoff-08",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-01",
+          "category": "policy",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "G"
+          ],
+          "rft": [
+            "missing refusal phrase",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "불가"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['불가'] empty_reply_turns=0",
+            "rft missing refusal phrase"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility"
+          ]
+        },
+        {
+          "id": "policy-06",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "g12-native-ngl0-r1",
+      "n": 60,
+      "n_pass": 50,
+      "n_fail": 10,
+      "primary": {
+        "D": 6,
+        "F": 1,
+        "A": 3
+      },
+      "multi": {
+        "D": 6,
+        "F": 3,
+        "E": 5,
+        "A": 3
+      },
+      "failures": [
+        {
+          "id": "single-18",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "request_refund"
+          ],
+          "include_missing": [
+            "검수"
+          ],
+          "hallucinated_values": [
+            "2026-10-27"
+          ],
+          "notes": [
+            "include_missing=['검수'] empty_reply_turns=0",
+            "hallucinated_values=['2026-10-27'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-29",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E",
+            "F"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "hallucinated_value",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [
+            "반품",
+            "2026-10-23"
+          ],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "include_missing=['반품', '2026-10-23'] empty_reply_turns=1",
+            "final_state_errors=[{\"path\": \"orders.O004.status\", \"expected\": \"반품접수\", \"actual\": \"배송완료\"}, {\"path\": \"orders.O004.return_reason\", \"expected\": \"단순변심\", \"actual\": \"\"}]",
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-03",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-05",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "refund_exchange",
+            "human"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "check_refund_eligibility",
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "handoff-08",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-06",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "clef-g12-r1",
+      "n": 60,
+      "n_pass": 48,
+      "n_fail": 12,
+      "primary": {
+        "E": 2,
+        "D": 5,
+        "F": 4,
+        "A": 1
+      },
+      "multi": {
+        "E": 4,
+        "D": 5,
+        "F": 4,
+        "A": 1
+      },
+      "failures": [
+        {
+          "id": "single-12",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O001.status\", \"expected\": \"취소\", \"actual\": \"결제완료\"}, {\"path\": \"payments.O001.refunded\", \"expected\": 30000, \"actual\": 0}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "cancel_order"
+          ]
+        },
+        {
+          "id": "single-18",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ],
+          "include_missing": [
+            "검수"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['검수'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ]
+        },
+        {
+          "id": "single-20",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O004.status\", \"expected\": \"교환접수\", \"actual\": \"배송완료\"}, {\"path\": \"orders.O004.exchange_option\", \"expected\": \"L\", \"actual\": \"\"}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_exchange"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-27",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments",
+            "route / handoff mismatch"
+          ],
+          "routes": [
+            "refund_exchange"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "3000원"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['3000원'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": true,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-03",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-04",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-06",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "robust-03",
+          "category": "robust",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "실행 미완료"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 3,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "search_faq"
+          ],
+          "include_missing": [
+            "3000원"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['3000원'] empty_reply_turns=1"
+          ],
+          "expected_calls": [
+            "search_faq",
+            "search_faq"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "jev-g12-r1",
+      "n": 60,
+      "n_pass": 49,
+      "n_fail": 11,
+      "primary": {
+        "D": 7,
+        "E": 1,
+        "F": 2,
+        "A": 1
+      },
+      "multi": {
+        "D": 7,
+        "E": 3,
+        "F": 2,
+        "A": 1
+      },
+      "failures": [
+        {
+          "id": "single-07",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [
+            "TRK000000003"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['TRK000000003'] empty_reply_turns=1",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "track_shipment"
+          ]
+        },
+        {
+          "id": "single-18",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ],
+          "include_missing": [
+            "검수"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['검수'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ]
+        },
+        {
+          "id": "single-20",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O004.status\", \"expected\": \"교환접수\", \"actual\": \"배송완료\"}, {\"path\": \"orders.O004.exchange_option\", \"expected\": \"L\", \"actual\": \"\"}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_exchange"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-29",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-04",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "handoff-08",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "order_delivery",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "robust-03",
+          "category": "robust",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments",
+            "route / handoff mismatch"
+          ],
+          "routes": [
+            "refund_exchange"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "3000원"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['3000원'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "search_faq",
+            "search_faq"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "pplx-g12-r1",
+      "n": 60,
+      "n_pass": 48,
+      "n_fail": 12,
+      "primary": {
+        "D": 7,
+        "E": 2,
+        "F": 2,
+        "A": 1
+      },
+      "multi": {
+        "D": 7,
+        "E": 4,
+        "F": 2,
+        "A": 1
+      },
+      "failures": [
+        {
+          "id": "single-07",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [
+            "TRK000000003"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['TRK000000003'] empty_reply_turns=1",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "track_shipment"
+          ]
+        },
+        {
+          "id": "single-12",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "order_delivery"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O001.status\", \"expected\": \"취소\", \"actual\": \"결제완료\"}, {\"path\": \"payments.O001.refunded\", \"expected\": 30000, \"actual\": 0}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "cancel_order"
+          ]
+        },
+        {
+          "id": "single-18",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ],
+          "include_missing": [
+            "검수"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['검수'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund"
+          ]
+        },
+        {
+          "id": "single-20",
+          "category": "single",
+          "old_success": false,
+          "primary": "E",
+          "labels": [
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "final_state_errors=[{\"path\": \"orders.O004.status\", \"expected\": \"교환접수\", \"actual\": \"배송완료\"}, {\"path\": \"orders.O004.exchange_option\", \"expected\": \"L\", \"actual\": \"\"}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_exchange"
+          ]
+        },
+        {
+          "id": "single-23",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "payment"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [
+            "R-O002"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['R-O002'] empty_reply_turns=0",
+            "final_state_errors=[{\"path\": \"payments.O002.receipt_issued\", \"expected\": true, \"actual\": false}]",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "issue_receipt"
+          ]
+        },
+        {
+          "id": "single-29",
+          "category": "single",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_policy"
+          ]
+        },
+        {
+          "id": "chain-01",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 6,
+          "tools": 2,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "chain-04",
+          "category": "chain",
+          "old_success": false,
+          "primary": "F",
+          "labels": [
+            "F"
+          ],
+          "rft": [
+            "hallucinated_value",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "order_delivery",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange",
+            "refund_exchange"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "include_missing": [],
+          "hallucinated_values": [
+            "2026-10-29"
+          ],
+          "notes": [
+            "hallucinated_values=['2026-10-29'] viol=1"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_order",
+            "check_refund_eligibility",
+            "request_refund",
+            "get_order",
+            "schedule_return_pickup"
+          ]
+        },
+        {
+          "id": "handoff-06",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "required call missing / wrong arguments"
+          ],
+          "routes": [
+            "product",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_reviews"
+          ],
+          "include_missing": [
+            "타인"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['타인'] empty_reply_turns=0",
+            "also: required call missing/wrong args"
+          ],
+          "expected_calls": [
+            "get_reviews",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "handoff-08",
+          "category": "handoff",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply"
+          ],
+          "routes": [
+            "order_delivery",
+            "qna"
+          ],
+          "steps": 4,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "get_order",
+            "get_policy"
+          ],
+          "include_missing": [
+            "출고"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['출고'] empty_reply_turns=0"
+          ],
+          "expected_calls": [
+            "get_order",
+            "get_policy"
+          ]
+        },
+        {
+          "id": "policy-07",
+          "category": "policy",
+          "old_success": false,
+          "primary": "A",
+          "labels": [
+            "A",
+            "E"
+          ],
+          "rft": [
+            "final_state mismatch",
+            "handoff tool not called"
+          ],
+          "routes": [
+            "human"
+          ],
+          "steps": 2,
+          "tools": 0,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [],
+          "include_missing": [],
+          "hallucinated_values": [],
+          "notes": [
+            "human_routed=True need_esc=True has_escalate=False rft_handoff=True",
+            "final_state_errors=[{\"path\": \"escalations\", \"expected\": {\"items\": [{\"customer_id\": \"C01\", \"reason\": {\"any\": true}, \"summary\": {\"any\": true}}]}, \"actual\": []}]"
+          ],
+          "expected_calls": [
+            "escalate_to_human"
+          ]
+        },
+        {
+          "id": "robust-03",
+          "category": "robust",
+          "old_success": false,
+          "primary": "D",
+          "labels": [
+            "D"
+          ],
+          "rft": [
+            "missing required reply",
+            "실행 미완료"
+          ],
+          "routes": [
+            "qna"
+          ],
+          "steps": 3,
+          "tools": 1,
+          "transfers": 0,
+          "transfer_back": 0,
+          "loop_limit": false,
+          "has_escalate": false,
+          "tool_names": [
+            "search_faq"
+          ],
+          "include_missing": [
+            "3000원"
+          ],
+          "hallucinated_values": [],
+          "notes": [
+            "include_missing=['3000원'] empty_reply_turns=1"
+          ],
+          "expected_calls": [
+            "search_faq",
+            "search_faq"
+          ]
+        }
+      ]
+    }
+  ]
+}

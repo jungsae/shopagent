@@ -1,0 +1,60 @@
+--- docs/failfix-before-20261025/code/shop/graph.py	2026-10-24 22:27:55.557241054 +0900
++++ shop/graph.py	2026-10-25 16:35:35.936288649 +0900
+@@ -8,6 +8,7 @@
+ from langgraph.types import Command
+ 
+ from .grader import output_values, value_tokens
++from .shared import ROOT, REFERENCE_DATE, load
+ from .tools import SCOPES
+ 
+ 
+@@ -36,6 +37,7 @@
+     for call in shop.trace:
+         if call.get("kind") == "tool" and call["turn"] == turn:
+             known |= output_values(call["output"])
++    known |= value_tokens(load(ROOT / "data/prompts.json")["common"].format(customer_id=shop.customer_id, reference_date=REFERENCE_DATE))
+     # The grader also extracts IDs, which this guard does not check.
+     return sorted(value for value in value_tokens(reply) - known if value[0].isdigit())
+ 
+--- docs/failfix-before-20261025/code/tests/test_shop.py	2026-10-24 22:27:55.587240204 +0900
++++ tests/test_shop.py	2026-10-25 16:35:35.972288657 +0900
+@@ -198,8 +198,21 @@
+                 grade = grade_scenario(scenario, rows, shop)
+                 self.assertTrue(grade["success"], grade)
+ 
++    def test_policy_value_grounded_without_tools(self):
++        for amount in ("3000", "3,000"):
++            with self.subTest(amount=amount):
++                reply = "Return fee: " + amount + "\uc6d0"
++                stub = Stub([routed("refund_exchange"), message(reply)])
++                shop = Shop(BASE, "C01")
++                result = run_turn(Agents(stub, "C01"), shop, 0, "What is the return fee?", [])
++                self.assertEqual(result["grounding_retries"], 0)
++                self.assertFalse(result["grounding_failed"])
++                self.assertEqual(result["reply"], reply)
++                self.assertEqual(result["tool_count"], 0)
++                self.assertEqual(shop.trace, [])
++
+     def test_unseen_values_trigger_one_grounding_retry(self):
+-        for reply in ("2026-10-29", "2026\ub144 10\uc6d4 29\uc77c", "10\uc6d4 29\uc77c", "10/29", "999,000\uc6d0", "3\ub9cc\uc6d0"):
++        for reply in ("2026-10-29", "2026\ub144 10\uc6d4 29\uc77c", "10\uc6d4 29\uc77c", "10/29", "999,000\uc6d0", "3\ub9cc\uc6d0", "4321\uc6d0"):
+             with self.subTest(reply=reply):
+                 agents = Agents(Stub([routed("qna"), message(reply), message("Please check with support")]), "C01")
+                 agents.respond = Mock(wraps=agents.respond)
+@@ -234,7 +247,7 @@
+         self.assertEqual(result["grounding_retries"], 1)
+ 
+     def test_grounding_retry_cannot_ground_itself_or_repeat_mutations(self):
+-        for second in (message("2026-10-29 999000\uc6d0"), message("", ("cancel_order", {"order_id": "O001"}))):
++        for second in (message("2026-10-29 999000\uc6d0"), message("4321\uc6d0"), message("", ("cancel_order", {"order_id": "O001"}))):
+             with self.subTest(second=second):
+                 shop = Shop(BASE, "C01")
+                 stub = Stub([routed("order_delivery"), message("2026-10-29"), second])
+@@ -243,6 +256,7 @@
+                 self.assertEqual(result["grounding_retries"], 1)
+                 self.assertEqual(len(stub.nodes), 3)
+                 self.assertNotIn("2026-10-29", "\n".join(result["visible"]))
++                self.assertNotIn("4321\uc6d0", "\n".join(result["visible"]))
+                 self.assertTrue(result["reply"])
+                 self.assertEqual(result["pending"], [])
+                 self.assertEqual(shop.db, shop.initial)

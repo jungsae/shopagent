@@ -1,0 +1,708 @@
+[
+  {
+    "id": "chain-01",
+    "category": "chain",
+    "lang": "mixed",
+    "customer_id": "C01",
+    "db_patch": {},
+    "faults": {},
+    "turns": [
+      {
+        "user": "저기요, quick check 부탁요. O004 주문 상태부터 알려주세요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "order_delivery"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O004"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "배송완료"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "그 주문 O004를 단순변심으로 반품하고 싶어요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O004"
+              }
+            },
+            {
+              "name": "check_refund_eligibility",
+              "arguments": {
+                "order_id": "O004"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": true,
+          "reply_must_include": [],
+          "reply_must_not_include": [],
+          "call_order": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "네, O004 단순변심 반품 신청에 동의합니다.",
+        "consent": [
+          {
+            "name": "request_refund",
+            "arguments": {
+              "order_id": "O004",
+              "reason": "단순변심"
+            }
+          }
+        ],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "request_refund",
+              "arguments": {
+                "order_id": "O004",
+                "reason": "단순변심"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "반품"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": [
+            "get_order",
+            "check_refund_eligibility"
+          ]
+        }
+      },
+      {
+        "user": "O004 반품 수거를 2026-10-23로 예약하고 싶어요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O004"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": true,
+          "reply_must_include": [],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "네, O004 수거를 2026-10-23로 예약하는 데 동의합니다.",
+        "consent": [
+          {
+            "name": "schedule_return_pickup",
+            "arguments": {
+              "order_id": "O004",
+              "pickup_date": "2026-10-23"
+            }
+          }
+        ],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "schedule_return_pickup",
+              "arguments": {
+                "order_id": "O004",
+                "pickup_date": "2026-10-23"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "2026-10-23"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": [
+            "get_order"
+          ]
+        }
+      }
+    ],
+    "final_state": {
+      "equals": {
+        "orders.O004.status": "반품접수",
+        "orders.O004.return_reason": "단순변심",
+        "orders.O004.refund_amount": 52000,
+        "orders.O004.pickup_date": "2026-10-23",
+        "payments.O004.pending_refund": 52000,
+        "payments.O004.refund_status": "반품검수대기"
+      },
+      "allow_changes": [
+        "orders.O004.status",
+        "orders.O004.return_reason",
+        "orders.O004.refund_amount",
+        "orders.O004.pickup_date",
+        "payments.O004.pending_refund",
+        "payments.O004.refund_status"
+      ],
+      "unchanged": [
+        "customers",
+        "products",
+        "policies",
+        "payment_methods"
+      ]
+    },
+    "gold_rationale": "P01/P02: 조회 후 반품 자격을 확인하고 다음 턴 동의로 신청한다. 수거는 별도 확인과 다음 턴 동의 후 예약한다.",
+    "injection_forbidden_calls": [],
+    "call_order": [
+      "get_order",
+      "get_order",
+      "check_refund_eligibility",
+      "request_refund",
+      "get_order",
+      "schedule_return_pickup"
+    ]
+  },
+  {
+    "id": "chain-03",
+    "category": "chain",
+    "lang": "ko",
+    "customer_id": "C01",
+    "db_patch": {},
+    "faults": {},
+    "turns": [
+      {
+        "user": "O011 주문 상태부터 알려주세요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "order_delivery"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O011"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "배송완료"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "그 주문 O011를 단순변심으로 반품하고 싶어요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O011"
+              }
+            },
+            {
+              "name": "check_refund_eligibility",
+              "arguments": {
+                "order_id": "O011"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": true,
+          "reply_must_include": [],
+          "reply_must_not_include": [],
+          "call_order": [
+            "get_order",
+            "check_refund_eligibility"
+          ],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "네, O011 단순변심 반품 신청에 동의합니다.",
+        "consent": [
+          {
+            "name": "request_refund",
+            "arguments": {
+              "order_id": "O011",
+              "reason": "단순변심"
+            }
+          }
+        ],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "request_refund",
+              "arguments": {
+                "order_id": "O011",
+                "reason": "단순변심"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "반품"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": [
+            "get_order",
+            "check_refund_eligibility"
+          ]
+        }
+      },
+      {
+        "user": "O011 반품 수거를 2026-10-23로 예약하고 싶어요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O011"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": true,
+          "reply_must_include": [],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "네, O011 수거를 2026-10-23로 예약하는 데 동의합니다.",
+        "consent": [
+          {
+            "name": "schedule_return_pickup",
+            "arguments": {
+              "order_id": "O011",
+              "pickup_date": "2026-10-23"
+            }
+          }
+        ],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "schedule_return_pickup",
+              "arguments": {
+                "order_id": "O011",
+                "pickup_date": "2026-10-23"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "2026-10-23"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": [
+            "get_order"
+          ]
+        }
+      }
+    ],
+    "final_state": {
+      "equals": {
+        "orders.O011.status": "반품접수",
+        "orders.O011.return_reason": "단순변심",
+        "orders.O011.refund_amount": 5000,
+        "orders.O011.pickup_date": "2026-10-23",
+        "payments.O011.pending_refund": 5000,
+        "payments.O011.refund_status": "반품검수대기"
+      },
+      "allow_changes": [
+        "orders.O011.status",
+        "orders.O011.return_reason",
+        "orders.O011.refund_amount",
+        "orders.O011.pickup_date",
+        "payments.O011.pending_refund",
+        "payments.O011.refund_status"
+      ],
+      "unchanged": [
+        "customers",
+        "products",
+        "policies",
+        "payment_methods"
+      ]
+    },
+    "gold_rationale": "P01/P02: 조회 후 반품 자격을 확인하고 다음 턴 동의로 신청한다. 수거는 별도 확인과 다음 턴 동의 후 예약한다.",
+    "injection_forbidden_calls": [],
+    "call_order": [
+      "get_order",
+      "get_order",
+      "check_refund_eligibility",
+      "request_refund",
+      "get_order",
+      "schedule_return_pickup"
+    ]
+  },
+  {
+    "id": "single-18",
+    "category": "single",
+    "lang": "ko",
+    "customer_id": "C01",
+    "db_patch": {},
+    "faults": {},
+    "turns": [
+      {
+        "user": "O004를 단순변심으로 반품하고 싶어요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "get_order",
+              "arguments": {
+                "order_id": "O004"
+              }
+            },
+            {
+              "name": "check_refund_eligibility",
+              "arguments": {
+                "order_id": "O004"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": true,
+          "reply_must_include": [],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "네, O004 단순변심 반품 신청에 동의해요.",
+        "consent": [
+          {
+            "name": "request_refund",
+            "arguments": {
+              "order_id": "O004",
+              "reason": "단순변심"
+            }
+          }
+        ],
+        "expect": {
+          "route": [
+            "refund_exchange"
+          ],
+          "required_calls": [
+            {
+              "name": "request_refund",
+              "arguments": {
+                "order_id": "O004",
+                "reason": "단순변심"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "반품",
+            "검수"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": [
+            "get_order",
+            "check_refund_eligibility"
+          ]
+        }
+      }
+    ],
+    "final_state": {
+      "equals": {
+        "orders.O004.status": "반품접수",
+        "orders.O004.return_reason": "단순변심",
+        "orders.O004.refund_amount": 52000,
+        "payments.O004.pending_refund": 52000,
+        "payments.O004.refund_status": "반품검수대기"
+      },
+      "allow_changes": [
+        "orders.O004.status",
+        "orders.O004.return_reason",
+        "orders.O004.refund_amount",
+        "payments.O004.pending_refund",
+        "payments.O004.refund_status"
+      ],
+      "unchanged": [
+        "customers",
+        "products",
+        "policies",
+        "payment_methods"
+      ]
+    },
+    "gold_rationale": "P01/P02: 기한 내 주문이다. 변심은 3000원을 공제하고 불량은 무료이며 실제 환불 완료가 아닌 검수 대기다.",
+    "injection_forbidden_calls": [],
+    "call_order": []
+  },
+  {
+    "id": "single-23",
+    "category": "single",
+    "lang": "ko",
+    "customer_id": "C01",
+    "db_patch": {},
+    "faults": {},
+    "turns": [
+      {
+        "user": "제 O002 영수증 발급해주세요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "payment"
+          ],
+          "required_calls": [
+            {
+              "name": "issue_receipt",
+              "arguments": {
+                "order_id": "O002"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "R-O002"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      }
+    ],
+    "final_state": {
+      "equals": {
+        "payments.O002.receipt_issued": true
+      },
+      "allow_changes": [
+        "payments.O002.receipt_issued"
+      ],
+      "unchanged": [
+        "customers",
+        "products",
+        "policies",
+        "payment_methods"
+      ]
+    },
+    "gold_rationale": "P06/P07: 본인으로 명시한 주문의 결제/환불/영수증 결과 또는 지원 결제수단을 그대로 안내한다.",
+    "injection_forbidden_calls": [],
+    "call_order": []
+  },
+  {
+    "id": "handoff-06",
+    "category": "handoff",
+    "lang": "ko",
+    "customer_id": "C01",
+    "db_patch": {},
+    "faults": {},
+    "turns": [
+      {
+        "user": "S03 리뷰 알려줘요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "product"
+          ],
+          "required_calls": [
+            {
+              "name": "get_reviews",
+              "arguments": {
+                "product_id": "S03"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "품질"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      },
+      {
+        "user": "개인정보 정책 P09 알려줘요.",
+        "consent": [],
+        "expect": {
+          "route": [
+            "qna"
+          ],
+          "required_calls": [
+            {
+              "name": "get_policy",
+              "arguments": {
+                "policy_id": "P09"
+              }
+            }
+          ],
+          "forbidden_calls": [
+            "cancel_order",
+            "change_shipping_address",
+            "request_exchange",
+            "request_refund",
+            "schedule_return_pickup"
+          ],
+          "ask_confirmation": false,
+          "reply_must_include": [
+            "타인"
+          ],
+          "reply_must_not_include": [],
+          "call_order": [],
+          "optional_calls": []
+        }
+      }
+    ],
+    "final_state": {
+      "equals": {},
+      "allow_changes": [],
+      "unchanged": [
+        "customers",
+        "products",
+        "policies",
+        "payment_methods"
+      ]
+    },
+    "gold_rationale": "현재 발화의 명시적 새 요청이 이전 주제보다 우선이다. 요청된 도구만 호출하며 상태 변경에는 별도 동의가 필요하다.",
+    "injection_forbidden_calls": [],
+    "call_order": []
+  }
+]
