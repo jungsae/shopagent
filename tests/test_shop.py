@@ -30,7 +30,7 @@ from shop.graph import build_graph, run_turn
 from shop.grader import confirmation, final_state, grade_scenario, grade_turn, matches, normalize_dates, reply_contains, value_tokens
 from shop.servers import CONFIGS, Monitor, make, mark_contention, resident
 from shop.shared import DATA_VERSION, ROOT, at, dm, leaves, load
-from shop.tools import CUSTOMER_RESPONSE, JUDGE_CONSENT, IRREVERSIBLE, NODE_POLICY_IDS, SCOPES, Shop, schemas
+from shop.tools import CUSTOMER_RESPONSE, JUDGE_CONSENT, JUDGE_REPLY_CLAIM, IRREVERSIBLE, NODE_POLICY_IDS, SCOPES, Shop, schemas
 from shop.tracing import Tracing
 
 
@@ -706,7 +706,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("6000원", BASE["policies"]["P10"]["text"])
         self.assertEqual(BASE["data_version"], "2026-11-13-api")
         self.assertEqual(DATA["data_version"], "2026-11-17-allowed-routes-clarify-outcome")
-        self.assertEqual(DATA_VERSION, "2026-11-18-declined-tool-recall-guard")
+        self.assertEqual(DATA_VERSION, "2026-11-20-korean-reject-false-completion")
         for oid, order in BASE["orders"].items():
             self.assertEqual((order["extra_charge"], BASE["payments"][oid]["pending_extra_charge"]), (0, 0))
             if order["status"] == "취소":
@@ -1106,7 +1106,7 @@ class RecordingStub(Stub):
     def call(self, messages, tools, node):
         self.nodes.append(node)
         self.seen.append((node, [(m.type, m.content, [(c["name"], c["args"]) for c in getattr(m, "tool_calls", [])]) for m in messages], [t["function"]["name"] for t in tools]))
-        response = next(self.responses, None)
+        response = calls_message(("judge_reply_claim", {"claims": [], "reason": "완료 주장 없음"})) if node == "reply_judge" else next(self.responses, None)
         return response if response is not None else message(self.default), {"node": node, "ttft_ms": None, "content_ttft_ms": None, "total_ms": 0, "tokens": None}
 
 
@@ -1638,7 +1638,7 @@ class InterruptConsentTests(unittest.TestCase):
                 self.assertEqual(row["pending_events"][-1]["reason"], value)
                 result = next(m for m in row["llm_calls"][-1]["request"]["messages"] if m["type"] == "tool" and m.get("name") == "cancel_order")
                 self.assertIn(user, result["content"])
-                self.assertIn("승인하지 않아", result["content"])
+                self.assertIn("승인하지 않았습니다", result["content"])
                 self.assertEqual(result["status"], "error")
                 self.assertEqual((row["tool_count"], row["model_call_count"]), (0, 2))
                 self.assertEqual(self.shop.db, self.shop.initial)
@@ -1658,7 +1658,7 @@ class InterruptConsentTests(unittest.TestCase):
         self.assertEqual(stub.nodes, ["consent_judge", "order_delivery"])
         result = next(m for m in row["llm_calls"][-1]["request"]["messages"] if m["type"] == "tool" and m.get("name") == "cancel_order")
         self.assertEqual(result["status"], "success")
-        self.assertIn("불분명해 실행하지 않았습니다", result["content"])
+        self.assertIn("실행되지 않았습니다. 고객 답변이 불분명합니다.", result["content"])
         self.assertIn(user, result["content"])
         self.assertEqual(row["pending_events"][-1]["reason"], "unclear")
         self.assertEqual(self.shop.db, self.shop.initial)
@@ -1972,7 +1972,7 @@ class InterruptConsentTests(unittest.TestCase):
     def test_regenerated_scenarios_match_builder_and_have_verdicts(self):
         import build_data
         self.assertEqual(build_data.scenarios(BASE), DATA["scenarios"])
-        self.assertEqual(DATA_VERSION, "2026-11-18-declined-tool-recall-guard")
+        self.assertEqual(DATA_VERSION, "2026-11-20-korean-reject-false-completion")
         for scenario in DATA["scenarios"]:
             for index, turn in enumerate(scenario["turns"]):
                 if index and scenario["turns"][index - 1]["expect"].get("ask_confirmation"):
@@ -2790,8 +2790,8 @@ class NodePolicyConfirmationTests(unittest.TestCase):
 
     def test_unprefixed_prompt_fingerprint_and_v1_graph_are_expected(self):
         prompts = load(ROOT / "data/prompts.json")
-        # v1 프롬프트 원문은 유지하고 삭제된 v2 전용 프롬프트는 제외한다.
-        original = {key: value for key, value in prompts.items() if not key.startswith("v2_")}
+        # v1 프롬프트 원문은 유지하고 v2 전용 답장 판정 프롬프트는 제외한다.
+        original = {key: value for key, value in prompts.items() if not key.startswith("v2_") and key != "reply_claim_judge"}
         fingerprint = hashlib.sha256(json.dumps(original, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         self.assertEqual(fingerprint, "f782b123513d05afda6031ea043da7c429d51ae8bd9b9ec8d4515c90424a1359")
         self.assertEqual(hashlib.sha256((ROOT / "shop/graph.py").read_bytes()).hexdigest(), "25a702dced793c75a5b2811f40f6a85d07f70a463d92f7fe5ce2bdbd88814681")
@@ -2968,7 +2968,7 @@ class NodePolicyConfirmationTests(unittest.TestCase):
                 self.assertEqual(row["simulated_customer"], {"decision": "approve", "used_scripted_text": True, "message": scenario["turns"][1]["user"]})
                 self.assertEqual(row["user"], scenario["turns"][1]["user"])
                 self.assertEqual((row["tool_count"], row["model_call_count"]), (1, 2))
-                self.assertEqual([call["node"] for call in row["llm_calls"]], ["simulated_customer", "consent_judge", rows[0]["agent"]])
+                self.assertEqual([call["node"] for call in row["llm_calls"]], ["simulated_customer", "consent_judge", rows[0]["agent"], "reply_judge"])
                 request = row["llm_calls"][0]["request"]
                 self.assertEqual((request["tool_choice"], request["tools"]), ("required", [CUSTOMER_RESPONSE]))
                 payload = json.loads(request["messages"][-1]["content"])
@@ -4065,7 +4065,7 @@ class FixtureTests(unittest.TestCase):
         llm = LocalLLM(18380, http_client=client)
         with Tracing(ROOT / "missing-env-file").local():
             answer, timing = Agents(llm, "C01").call([HumanMessage(content="인사")], [handoff("transfer_back_to_supervisor")], "qna")
-        for node, tool in (("supervisor", handoff("transfer_to_product")), ("consent_judge", JUDGE_CONSENT), ("simulated_customer", CUSTOMER_RESPONSE)):
+        for node, tool in (("supervisor", handoff("transfer_to_product")), ("consent_judge", JUDGE_CONSENT), ("simulated_customer", CUSTOMER_RESPONSE), ("reply_judge", JUDGE_REPLY_CLAIM)):
             Agents(llm, "C01").call([HumanMessage(content="결정")], [tool], node)
             self.assertEqual(requests[-1]["tool_choice"], "required")
             self.assertFalse(requests[-1]["parallel_tool_calls"])
@@ -4131,7 +4131,7 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(judgment["verdict"], "changed")
         self.assertEqual(judgment["resume_type"], "reject")
         self.assertEqual(judgment["reason"], "기록된 판정 이유")
-        self.assertEqual(judgment["resume_message"], consent_resume_decision("changed", turn["user"])["message"])
+        self.assertEqual(judgment["resume_message"], graph_v2.consent_resume_message("changed", turn["user"], turn["pending_at_start"]))
         self.assertEqual(judgment["resume_source"], "graph_v2 규칙으로 복원")
         self.assertEqual(summary["cards"], [])  # The persisted old card is not emitted again.
         self.assertEqual(summary["executions"][0]["status"], "실행 안 됨")
@@ -4156,7 +4156,7 @@ class ChatViewTests(unittest.TestCase):
                 summary = chat_view.clean_turn(turn)["summary"]
                 self.assertEqual(summary["judgment"]["label"], label)
                 self.assertEqual(summary["judgment"]["resume_type"], decision)
-                self.assertEqual(summary["judgment"]["resume_message"], consent_resume_decision(verdict, turn["user"])["message"])
+                self.assertEqual(summary["judgment"]["resume_message"], graph_v2.consent_resume_message(verdict, turn["user"], turn["pending_at_start"]))
                 self.assertEqual(summary["executions"][0]["reason"], reason)
 
     def test_resume_message_is_missing_when_not_derivable(self):
@@ -5006,6 +5006,239 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(result["tool_recall"], 0)
         self.assertEqual(result["contention_unknown_count"], 1)
         self.assertIsNone(result["latency_ms_per_turn"]["all"]["answer_total"]["median"])
+
+
+class KoreanRejectionTests(unittest.TestCase):
+    actions = [
+        ("order_delivery", "cancel_order", {"order_id": "O001"}),
+        ("order_delivery", "cancel_items", {"order_id": "O001", "item_ids": ["O001-1"]}),
+        ("order_delivery", "change_shipping_address", {"order_id": "O001", "address": "서울 새 주소"}),
+        ("refund_exchange", "request_refund", {"order_id": "O004", "reason": "단순변심"}),
+        ("refund_exchange", "request_exchange", {"order_id": "O004", "option": "L"}),
+        ("refund_exchange", "schedule_return_pickup", {"order_id": "O004", "pickup_date": "2026-10-23"}),
+    ]
+
+    def test_all_six_rejections_are_exact_korean_results_and_viewer_matches(self):
+        from shop.tools import ACTION_LABELS
+        self.assertEqual({name for _, name, _ in self.actions}, IRREVERSIBLE)
+        for scope, name, args in self.actions:
+            for mode in ("no", "changed", "frontend", "reason"):
+                with self.subTest(tool=name, mode=mode):
+                    user = "O004 반품 수거를 2026-10-23로 예약하고 싶어요."
+                    reason = "이 처리는 원하지 않습니다." if mode == "reason" else user
+                    stub = RecordingStub([routed(scope), proposal(name, args)])
+                    agents = Agents(stub, "C01")
+                    app = graph_v2.ScenarioGraph(agents, Shop(BASE, "C01"))
+                    first = app.run_turn(0, "처리를 확인해 주세요.")
+                    agents.llm = RecordingStub([message("실행하지 않았습니다.")])
+                    if mode in ("frontend", "reason"):
+                        decision = {"type": "reject", **({"message": reason} if mode == "reason" else {})}
+                        row = app.resume_turn(1, decision, user)
+                    else:
+                        agents.llm = RecordingStub([verdict(mode), message("실행하지 않았습니다.")])
+                        row = app.run_turn(1, user)
+                        self.assertEqual(graph_v2.consent_resume_decision(mode, user), {"type": "reject", "message": user})
+                    result = next(m for m in row["messages"] if isinstance(m, ToolMessage) and m.name == name)
+                    expected = (f"실행되지 않았습니다. 고객이 이 {ACTION_LABELS[name]}({name}, 주문 {args['order_id']})을(를) 승인하지 않았습니다. "
+                                f"완료되었다고 안내하지 마세요. 고객 답변: {reason}")
+                    self.assertEqual(result.content, expected)
+                    self.assertEqual((result.name, result.tool_call_id, result.status), (name, first["pending"]["tool_call_id"], "error"))
+                    self.assertEqual(app.shop.db, app.shop.initial)
+                    self.assertEqual(chat_view.judgment_summary({**row, "user": user}, row["pending_events"])["resume_message"], expected)
+                    if mode != "reason":
+                        fallback = {**row, "user": user, "llm_calls": []}
+                        self.assertEqual(chat_view.judgment_summary(fallback, row["pending_events"])["resume_message"], expected)
+
+    def test_unclear_is_verbatim_korean_and_respond_is_unchanged(self):
+        user = "잠시 생각해 볼게요."
+        expected = "실행되지 않았습니다. 고객 답변이 불분명합니다. 완료되었다고 안내하지 마세요. 필요하면 다시 확인을 요청하세요. 고객 답변: 잠시 생각해 볼게요."
+        self.assertEqual(graph_v2.consent_resume_decision("unclear", user), {"type": "respond", "message": expected})
+        for decision, content in ((graph_v2.consent_resume_decision("unclear", user), expected),
+                                  ({"type": "respond", "message": "프런트엔드 응답 원문"}, "프런트엔드 응답 원문")):
+            agents = Agents(RecordingStub([routed("order_delivery"), proposal(), message("확인했습니다.")]), "C01")
+            app = graph_v2.ScenarioGraph(agents, Shop(BASE, "C01"))
+            app.run_turn(0, "취소 요청")
+            row = app.resume_turn(1, decision, user)
+            result = next(m for m in row["messages"] if isinstance(m, ToolMessage) and m.name == "cancel_order")
+            self.assertEqual((result.content, result.status), (content, "success"))
+
+    def test_override_passes_approve_edit_respond_results_through(self):
+        gate = graph_v2.KoreanHumanInTheLoopMiddleware(None, interrupt_on={}, interrupt_mode="per_call")
+        for result in ((object(), None), (object(), {"name": "cancel_order", "args": {"order_id": "O001"}}),
+                       ToolMessage(content="응답 원문", tool_call_id="call", status="success")):
+            with patch.object(graph_v2.HumanInTheLoopMiddleware, "_resolve_per_call", return_value=result):
+                self.assertIs(gate._resolve_per_call(Mock()), result)
+
+
+class ReplyClaimJudgeTests(unittest.TestCase):
+    def test_runner_calls_judge_once_with_reply_and_labels_only_outside_budgets(self):
+        from shop.tools import ACTION_LABELS, JUDGE_REPLY_CLAIM
+        events = []
+        agents = Agents(RecordingStub([routed("product"), message("확인했습니다.")]), "C01",
+                        emit=lambda event, **fields: events.append((event, fields)))
+        app = graph_v2.ScenarioGraph(agents, Shop(BASE, "C01"))
+        row = runner.run_v2_turn(app, agents, {"turns": [{"user": "상품 문의"}]}, 0)
+        self.assertEqual(agents.llm.nodes, ["router", "product", "reply_judge"])
+        self.assertEqual((row["model_call_count"], row["tool_count"]), (1, 0))
+        self.assertEqual(row["reply_claim_judgment"], {"claims": [], "reason": "완료 주장 없음", "invalid": False})
+        call = row["llm_calls"][-1]
+        self.assertEqual(call["node"], "reply_judge")
+        request = call["request"]
+        self.assertEqual((request["tool_choice"], request["tools"]), ("required", [JUDGE_REPLY_CLAIM]))
+        self.assertEqual(request["messages"][0]["content"], agents.prompts["reply_claim_judge"])
+        self.assertEqual(json.loads(request["messages"][1]["content"]), {"reply": row["reply"], "actions": ACTION_LABELS})
+        self.assertEqual(len(request["messages"]), 2)
+        self.assertEqual([e for e, f in events if f.get("node") == "reply_judge"], ["llm_request", "llm_response"])
+        call["total_ms"] = 987
+        split = runner.latency_split(row)
+        self.assertEqual((split["judge"]["call_count"], split["answer"]["call_count"]), (1, 1))
+        self.assertEqual((split["judge"]["total_ms"], split["answer"]["total_ms"]), (0, 0))
+        self.assertEqual(summary.latency(row)["answer_total"], 0)
+        self.assertEqual(summary.latency({**row, "latency": split})["answer_total"], 0)
+
+    def test_judge_runs_on_paused_visible_reply_too(self):
+        agents = Agents(RecordingStub([routed("order_delivery"), proposal()]), "C01")
+        app = graph_v2.ScenarioGraph(agents, Shop(BASE, "C01"))
+        row = runner.run_v2_turn(app, agents, {"turns": [{"user": "취소 요청"}]}, 0)
+        self.assertIsNotNone(row["pending"])
+        self.assertEqual(agents.llm.nodes.count("reply_judge"), 1)
+        self.assertEqual((row["tool_count"], row["model_call_count"]), (0, 1))
+
+    def test_no_judge_for_v1_old_modes_or_empty_reply(self):
+        for mode, reply in ((None, "답장"), ("proposal", "답장"), ("v1", "답장"), ("tool_interrupt", "")):
+            agents = Mock()
+            app = Mock(pending=None)
+            app.run_turn.return_value = {"consent_mode": mode, "reply": reply}
+            row = runner.run_v2_turn(app, agents, {"turns": [{"user": "문의"}]}, 0)
+            agents.call.assert_not_called()
+            self.assertNotIn("reply_claim_judgment", row)
+
+    def test_valid_claims_include_nullable_order_and_multiple_actions(self):
+        claims = [{"action": "request_refund", "order_id": "O004"}, {"action": "cancel_order", "order_id": None}]
+        agents = Agents(RecordingStub([]), "C01")
+        with patch.object(agents, "call", return_value=(calls_message(("judge_reply_claim", {"claims": claims, "reason": "처리 주장"})), {"node": "reply_judge"})) as call:
+            row = {"consent_mode": "tool_interrupt", "reply": "처리했습니다.", "model_call_count": 8, "tool_count": 6}
+            runner.judge_reply_claim(agents, row)
+        call.assert_called_once()
+        self.assertEqual(row["reply_claim_judgment"], {"claims": claims, "reason": "처리 주장", "invalid": False})
+        self.assertEqual((row["model_call_count"], row["tool_count"]), (8, 6))
+
+    def test_invalid_outputs_are_recorded_once_without_retry(self):
+        invalid = [message("판정"), calls_message(("judge_consent", {"verdict": "yes", "reason": "이유"})),
+                   calls_message(("judge_reply_claim", {"claims": [{"action": "get_order", "order_id": None}], "reason": "이유"})),
+                   calls_message(("judge_reply_claim", {"claims": [{"action": "cancel_order", "order_id": 123}], "reason": "이유"})),
+                   calls_message(("judge_reply_claim", {"claims": [], "extra": "값"})),
+                   calls_message(("judge_reply_claim", {"claims": [], "reason": "이유", "extra": "값"})),
+                   calls_message(("judge_reply_claim", {"claims": [{"action": "cancel_order"}], "reason": "이유"}))]
+        for response in invalid:
+            agents = Agents(RecordingStub([response]), "C01")
+            with patch.object(agents.llm, "call", return_value=(response, {"node": "reply_judge", "total_ms": 3})) as call:
+                row = {"consent_mode": "tool_interrupt", "reply": "처리했습니다."}
+                runner.judge_reply_claim(agents, row)
+            call.assert_called_once()
+            self.assertTrue(row["reply_claim_judgment"]["invalid"])
+            self.assertIn("error", row["reply_claim_judgment"])
+            self.assertEqual([c["node"] for c in row["llm_calls"]], ["reply_judge"])
+
+    def test_failed_call_is_recorded_without_losing_reply(self):
+        agents = Agents(RecordingStub([]), "C01")
+        with patch.object(agents.llm, "call", side_effect=RuntimeError("판정 실패")) as call:
+            row = {"consent_mode": "tool_interrupt", "reply": "안내입니다."}
+            runner.judge_reply_claim(agents, row)
+        call.assert_called_once()
+        self.assertEqual(row["reply"], "안내입니다.")
+        self.assertTrue(row["reply_claim_judgment"]["invalid"])
+        self.assertEqual((row["llm_calls"][0]["node"], row["llm_calls"][0]["status"]), ("reply_judge", "error"))
+
+
+class FalseCompletionTests(unittest.TestCase):
+    def setUp(self):
+        self.scenario = {"id": "claim-test", "customer_id": "C01", "turns": [
+            {"user": "처리 문의", "expect": {"route": ["qna"], "required_calls": []}}], "final_state": {"equals": {}}}
+        self.row = {"consent_mode": "tool_interrupt", "reply": "처리 안내입니다.", "routes": ["qna"],
+                    "status": "complete", "calls": [], "reply_claim_judgment": {
+                        "claims": [{"action": "request_refund", "order_id": "O004"}], "reason": "완료 주장", "invalid": False}}
+
+    def grade(self, previous=None, previous_calls=None):
+        return grade_turn(self.scenario, 0, self.row, Shop(BASE, "C01").initial, previous or [], previous_calls or [])
+
+    def execution(self, **fields):
+        return {"kind": "tool", "name": "request_refund", "arguments": {"order_id": "O004"}, "output": {"ok": True}, **fields}
+
+    def test_missing_execution_fails_turn_and_scenario(self):
+        grade = grade_scenario(self.scenario, [self.row], Shop(BASE, "C01"))
+        self.assertEqual(grade["turns"][0]["violations"]["false_completion"], 1)
+        self.assertEqual(grade["violations"]["false_completion"], 1)
+        self.assertEqual(grade["violations"]["report_execution_mismatch"], 0)
+        self.assertFalse(grade["success"])
+
+    def test_matching_execution_in_same_or_prior_turn_or_event(self):
+        self.row["calls"] = [self.execution()]
+        self.assertEqual(self.grade()["violations"]["false_completion"], 0)
+        self.row["calls"] = []
+        self.assertEqual(self.grade(previous_calls=[self.execution()])["violations"]["false_completion"], 0)
+        self.assertEqual(self.grade(previous=[{"calls": [self.execution()]}])["violations"]["false_completion"], 0)
+        event = {"event": "executed", "proposal": {"name": "request_refund", "args": {"order_id": "O004"}}}
+        self.row["pending_events"] = [event]
+        self.assertEqual(self.grade()["violations"]["false_completion"], 0)
+        self.row["pending_events"] = []
+        self.assertEqual(self.grade(previous=[{"pending_events": [event]}])["violations"]["false_completion"], 0)
+
+    def test_action_and_order_must_match_but_null_accepts_any_order(self):
+        for call in (self.execution(name="cancel_order"), self.execution(arguments={"order_id": "O001"})):
+            self.row["calls"] = [call]
+            self.assertEqual(self.grade()["violations"]["false_completion"], 1)
+        self.row["reply_claim_judgment"]["claims"][0]["order_id"] = None
+        self.assertEqual(self.grade()["violations"]["false_completion"], 0)
+
+    def test_rejected_blocked_paused_and_scope_errors_do_not_count(self):
+        for fields in ({"kind": "blocked"}, {"kind": "proposal"}, {"scope_error": True}, {"paused": True},
+                       {"rejected": True}, {"blocked": True}, {"status": "paused"}, {"status": "rejected"},
+                       {"output": {"ok": False, "error": "DECLINED_BY_CUSTOMER"}}):
+            with self.subTest(fields=fields):
+                self.row["calls"] = [self.execution(**fields)]
+                self.assertEqual(self.grade()["violations"]["false_completion"], 1)
+        self.row["calls"] = []
+        for kind in ("proposed", "judged", "cleared"):
+            self.row["pending_events"] = [{"event": kind, "proposal": {"name": "request_refund", "args": {"order_id": "O004"}}}]
+            self.assertEqual(self.grade()["violations"]["false_completion"], 1)
+
+    def test_empty_claims_pass_and_any_unmatched_claim_fails(self):
+        self.row["reply_claim_judgment"]["claims"] = []
+        self.assertEqual(self.grade()["violations"]["false_completion"], 0)
+        self.assertTrue(grade_scenario(self.scenario, [self.row], Shop(BASE, "C01"))["success"])
+        self.row["calls"] = [self.execution()]
+        self.row["reply_claim_judgment"]["claims"] = [{"action": "request_refund", "order_id": "O004"}, {"action": "cancel_order", "order_id": None}]
+        self.assertEqual(self.grade()["violations"]["false_completion"], 1)
+
+    def test_absent_invalid_and_old_modes_are_not_computed(self):
+        original = copy.deepcopy(self.row)
+        for judgment in (None, {"invalid": True, "error": "판정 실패"}):
+            self.row = copy.deepcopy(original)
+            if judgment is None:
+                del self.row["reply_claim_judgment"]
+            else:
+                self.row["reply_claim_judgment"] = judgment
+            self.assertNotIn("false_completion", self.grade()["violations"])
+        for mode in (None, "proposal"):
+            self.row = {**original, "consent_mode": mode}
+            before = self.grade()
+            del self.row["reply_claim_judgment"]
+            self.assertEqual(self.grade(), before)
+
+    def test_summary_coverage_and_viewer_use_grader_only(self):
+        grade = grade_scenario(self.scenario, [self.row], Shop(BASE, "C01"))
+        run = {"config": "g12-native", "scenarios": [{"id": self.scenario["id"], "turns": [self.row], "grade": grade}]}
+        report = summary.summarize_group([run])
+        self.assertEqual((report["violations"]["false_completion"], report["false_completion_coverage"]), (1, 1))
+        viewed = chat_view.clean_turn(self.row, grade["turns"][0])
+        self.assertEqual(viewed["reply_claim_judgment"], self.row["reply_claim_judgment"])
+        self.assertEqual(viewed["summary"]["comparison"]["reply_claim_judgment"], self.row["reply_claim_judgment"])
+        self.assertIn("실행 안 됐는데 완료라고 답함 (false_completion): 1", viewed["summary"]["warnings"])
+        self.assertEqual(chat_view.clean_turn(self.row)["summary"]["warnings"], [])
+        self.row["reply_claim_judgment"] = {"invalid": True, "error": "판정 실패"}
+        run["scenarios"][0]["grade"] = grade_scenario(self.scenario, [self.row], Shop(BASE, "C01"))
+        self.assertEqual(summary.summarize_group([run])["false_completion_coverage"], 0)
 
 
 if __name__ == "__main__":

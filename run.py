@@ -64,7 +64,7 @@ def parse_args(argv=None):
 def latency_split(turn):
     result = {"turn_total_ms": turn.get("total_ms"), "turn_to_final_reply_ttft_ms": turn.get("turn_to_final_reply_ttft_ms")}
     for role in ("judge", "answer"):
-        calls = [c for c in turn.get("llm_calls", []) if c.get("node") != "simulated_customer" and (c.get("node") in ("router", "supervisor", "consent_judge")) == (role == "judge")]
+        calls = [c for c in turn.get("llm_calls", []) if c.get("node") not in ("simulated_customer", "reply_judge") and (c.get("node") in ("router", "supervisor", "consent_judge")) == (role == "judge")]
         result[role] = {"call_count": len(calls), "total_ms": sum(c["total_ms"] for c in calls) if all(c.get("total_ms") is not None for c in calls) else None, "ttft_ms": calls[0].get("ttft_ms") if role == "judge" and calls else turn.get("final_reply_ttft_ms") if role == "answer" else None, "calls": [{key: c.get(key) for key in ("node", "ttft_ms", "content_ttft_ms", "total_ms", "observer_ms", "status")} for c in calls]}
     customer_calls = [call for call in turn.get("llm_calls", []) if call.get("node") == "simulated_customer"]
     if customer_calls:
@@ -115,13 +115,41 @@ def run_v2_turn(app, agents, scenario, index, pending=None):
         return state
 
     try:
-        return attach(app.run_turn(index, user_text))
+        state = attach(app.run_turn(index, user_text))
     except BaseException as error:
         state = getattr(error, "shop_state", {})
         state.setdefault("total_ms", getattr(error, "shop_total_ms", 0))
         error.shop_state = attach(state)
         error.shop_total_ms = error.shop_state.get("total_ms", getattr(error, "shop_total_ms", 0))
         raise
+    judge_reply_claim(agents, state)
+    return state
+
+
+def judge_reply_claim(agents, turn):
+    """Harness-only reply interpretation; execution facts are never sent to the model."""
+    if turn.get("consent_mode") != "tool_interrupt" or not turn.get("reply"):
+        return
+    from shop.tools import ACTION_LABELS, JUDGE_REPLY_CLAIM
+
+    start = time.perf_counter()
+    try:
+        response, timing = agents.call([
+            SystemMessage(content=agents.prompts["reply_claim_judge"]),
+            HumanMessage(content=json.dumps({"reply": turn["reply"], "actions": ACTION_LABELS}, ensure_ascii=False)),
+        ], [JUDGE_REPLY_CLAIM], "reply_judge")
+        turn.setdefault("llm_calls", []).append(timing)
+        if len(response.tool_calls) != 1 or response.tool_calls[0]["name"] != "judge_reply_claim":
+            raise ValueError("Reply judge must call judge_reply_claim once")
+        arguments = response.tool_calls[0]["args"]
+        graph_v2.validate_arguments(arguments, JUDGE_REPLY_CLAIM["function"]["parameters"])
+        turn["reply_claim_judgment"] = {**arguments, "invalid": False}
+    except Exception as error:
+        if hasattr(error, "shop_llm_call"):
+            turn.setdefault("llm_calls", []).append(error.shop_llm_call)
+        turn["reply_claim_judgment"] = {"invalid": True, "error": dm.error_text(error)}
+    finally:
+        turn["total_ms"] = turn.get("total_ms", 0) + (time.perf_counter() - start) * 1000
 
 
 def attempt_stem(scenario_id, attempt_index=1):

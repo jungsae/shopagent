@@ -35,7 +35,7 @@ class LocalLLM:
         first = None
         content_first = None
         combined = None
-        model = self.client.bind_tools(tools, tool_choice="required" if node in ("router", "supervisor", "consent_judge", "simulated_customer") else "auto", parallel_tool_calls=False) if tools else self.client
+        model = self.client.bind_tools(tools, tool_choice="required" if node in ("router", "supervisor", "consent_judge", "simulated_customer", "reply_judge") else "auto", parallel_tool_calls=False) if tools else self.client
         for chunk in model.stream(messages):
             elapsed = (time.perf_counter() - start) * 1000
             if first is None and (chunk.content or chunk.tool_call_chunks):
@@ -78,7 +78,7 @@ class Agents:
         return value, timing
 
     def call(self, messages, tools, node):
-        request = {"messages": [m.model_dump(mode="json") for m in messages], "tools": tools, "tool_choice": "required" if node in ("router", "supervisor", "consent_judge", "simulated_customer") else ("none" if not tools else "auto"), "parallel_tool_calls": False, "temperature": 0, "max_tokens": 1024, "cache_prompt": False}
+        request = {"messages": [m.model_dump(mode="json") for m in messages], "tools": tools, "tool_choice": "required" if node in ("router", "supervisor", "consent_judge", "simulated_customer", "reply_judge") else ("none" if not tools else "auto"), "parallel_tool_calls": False, "temperature": 0, "max_tokens": 1024, "cache_prompt": False}
         if getattr(self.llm, "remote", False) is True:
             request.pop("cache_prompt")
             request["model"] = self.llm.client.model_name

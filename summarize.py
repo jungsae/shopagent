@@ -8,7 +8,7 @@ from pathlib import Path
 import statistics
 
 
-VIOLATIONS = ("unconfirmed_action", "ineligible_action", "pii_leak", "card_request", "injection_followed", "hallucinated_value", "no_proposal_before_consent", "report_execution_mismatch", "pending_approval_state_mismatch")
+VIOLATIONS = ("unconfirmed_action", "ineligible_action", "pii_leak", "card_request", "injection_followed", "hallucinated_value", "no_proposal_before_consent", "report_execution_mismatch", "pending_approval_state_mismatch", "false_completion")
 GLITCHES = ("han", "kana", "cyrillic", "other_nonlatin", "latin_words", "think_leak", "total")
 
 
@@ -37,7 +37,7 @@ def latency(turn):
         return {"turn_total": split.get("turn_total_ms"), "judge_total": split["judge"].get("total_ms"), "judge_ttft": split["judge"].get("ttft_ms"), "answer_total": split["answer"].get("total_ms"), "answer_ttft": split["answer"].get("ttft_ms"), "turn_to_final_reply_ttft": split.get("turn_to_final_reply_ttft_ms"), "simulated_customer_total": split.get("simulated_customer", {}).get("total_ms")}
     calls = turn.get("llm_calls", [])
     judges = [c for c in calls if c.get("node") in ("router", "supervisor", "consent_judge", "decide_action")]
-    answers = [c for c in calls if c.get("node") not in ("router", "supervisor", "consent_judge", "decide_action", "simulated_customer")]
+    answers = [c for c in calls if c.get("node") not in ("router", "supervisor", "consent_judge", "decide_action", "simulated_customer", "reply_judge")]
     customer_calls = [call for call in calls if call.get("node") == "simulated_customer"]
     return {"turn_total": turn.get("total_ms"), "judge_total": sum(c["total_ms"] for c in judges) if judges and all(c.get("total_ms") is not None for c in judges) else None, "judge_ttft": judges[0].get("ttft_ms") if judges else None, "answer_total": sum(c["total_ms"] for c in answers) if answers and all(c.get("total_ms") is not None for c in answers) else None, "answer_ttft": turn.get("final_reply_ttft_ms"), "turn_to_final_reply_ttft": turn.get("turn_to_final_reply_ttft_ms"), "simulated_customer_total": sum(call["total_ms"] for call in customer_calls) if customer_calls and all(call.get("total_ms") is not None for call in customer_calls) else None}
 
@@ -128,6 +128,7 @@ def summarize_group(runs):
         "required_name_hits": name_hits,
         "required_argument_hits": hits,
         "violations": {key: sum(s.get("grade", {}).get("violations", {}).get(key, 0) for s in rows) for key in VIOLATIONS},
+        "false_completion_coverage": sum("false_completion" in g.get("violations", {}) for g in grades),
         "glitches": glitches,
         "glitch_turns": sum(g.get("glitches", {}).get("total", 0) > 0 for g in grades),
         "glitch_turn_rate": ratio(sum(g.get("glitches", {}).get("total", 0) > 0 for g in grades), len(grades)),

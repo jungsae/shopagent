@@ -9,6 +9,20 @@ from .shared import REFERENCE_DATE, leaves, patched
 
 
 IRREVERSIBLE = {"cancel_order", "cancel_items", "request_refund", "request_exchange", "change_shipping_address", "schedule_return_pickup"}
+ACTION_LABELS = {"cancel_order": "전체 주문 취소", "cancel_items": "일부 상품 취소",
+                 "request_refund": "반품 신청", "request_exchange": "교환 신청",
+                 "change_shipping_address": "배송지 변경", "schedule_return_pickup": "반품 수거 예약"}
+JUDGE_REPLY_CLAIM = {"type": "function", "function": {
+    "name": "judge_reply_claim",
+    "description": "답장에서 이미 처리되었다고 주장하는 행동과 주문번호를 기록합니다.",
+    "parameters": {"type": "object", "properties": {
+        "claims": {"type": "array", "items": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": list(ACTION_LABELS)},
+            "order_id": {"type": ["string", "null"]},
+        }, "required": ["action", "order_id"], "additionalProperties": False}},
+        "reason": {"type": "string"},
+    }, "required": ["claims", "reason"], "additionalProperties": False},
+}}
 NODE_POLICY_IDS = {
     "order_delivery": ("P04", "P05", "P08", "P09"),
     "refund_exchange": ("P01", "P02", "P03", "P09", "P10"),
@@ -473,10 +487,7 @@ class Shop:
 
     def confirmation_card(self, action, arguments):
         """Render DB facts and a private backend dry run; never touch trace or live state."""
-        labels = {"cancel_order": "전체 주문 취소", "cancel_items": "일부 상품 취소",
-                  "request_refund": "반품 신청", "request_exchange": "교환 신청",
-                  "change_shipping_address": "배송지 변경", "schedule_return_pickup": "반품 수거 예약"}
-        lines = ["[처리 내용 확인]", "행동: " + labels[action], "주문번호: " + arguments["order_id"]]
+        lines = ["[처리 내용 확인]", "행동: " + ACTION_LABELS[action], "주문번호: " + arguments["order_id"]]
         probe = Shop(self.db, self.customer_id, reference_date=self.reference_date)
         order, error = probe._owned(arguments["order_id"])
         if error:

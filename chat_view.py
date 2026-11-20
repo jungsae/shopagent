@@ -9,7 +9,7 @@ from shop.tools import IRREVERSIBLE
 
 
 ROOT = Path(__file__).resolve().parent
-TURN_FIELDS = "consent_mode user scripted_user simulated_customer routes reply visible confirmation_card pending_at_start pending pending_events action_decision consent_judgment declined_actions approval_state order_context policy_context tool_count model_call_count ungrounded_values grounding_retries force_tool_retries loop_limit limit_reached transfers status error total_ms".split()
+TURN_FIELDS = "consent_mode user scripted_user simulated_customer routes reply reply_claim_judgment visible confirmation_card pending_at_start pending pending_events action_decision consent_judgment declined_actions approval_state order_context policy_context tool_count model_call_count ungrounded_values grounding_retries force_tool_retries loop_limit limit_reached transfers status error total_ms".split()
 CALL_FIELDS = "kind name arguments output prefetched scope_error fault_injected irreversible proposal_id changes total_ms".split()
 VERDICTS = {"yes": "승인", "no": "거절", "changed": "거절(변경 요청)", "unclear": "애매"}
 VIOLATIONS = {
@@ -17,6 +17,7 @@ VIOLATIONS = {
     "report_execution_mismatch": "답장과 실행 불일치", "hallucinated_value": "근거 없는 값",
     "pending_approval_state_mismatch": "확인 대기 상태 불일치", "ineligible_action": "불가 행동 실행",
     "pii_leak": "개인정보 노출", "card_request": "카드정보 요청", "injection_followed": "주입 지시 따름",
+    "false_completion": "실행 안 됐는데 완료라고 답함",
 }
 
 
@@ -97,7 +98,7 @@ def judgment_summary(turn, events):
     # Do not inspect or classify message content; keep that recorded message intact.
     for call in records(turn.get("llm_calls")):
         call = mapping(call)
-        if call.get("node") in ("router", "supervisor", "consent_judge", "simulated_customer"):
+        if call.get("node") in ("router", "supervisor", "consent_judge", "simulated_customer", "reply_judge"):
             continue
         for item in records(mapping(call.get("request")).get("messages")):
             item = mapping(item)
@@ -108,10 +109,12 @@ def judgment_summary(turn, events):
         if source != "기록 없음":
             break
     if source == "기록 없음" and resume_type != "-" and isinstance(turn.get("user"), str):
-        from shop.graph_v2 import consent_resume_decision
+        from shop.graph_v2 import consent_resume_decision, consent_resume_message
         decision = consent_resume_decision(verdict, turn["user"])
         if "message" in decision:
             message, source = decision["message"], "graph_v2 규칙으로 복원"
+            if decision["type"] == "reject" and pending.get("name") in IRREVERSIBLE:
+                message = consent_resume_message(verdict, decision["message"], pending)
     return {"verdict": verdict, "label": VERDICTS.get(verdict, "(기록 없음)"),
             "proposal_id": judgment.get("proposal_id", pending.get("id", "(기록 없음)")),
             "reason": judgment.get("reason", "(기록 없음)"), "resume_type": resume_type,
@@ -197,8 +200,10 @@ def turn_summary(turn, grade=None):
     if (not executed and positive(mapping(grade.get("violations")).get("report_execution_mismatch"))):
         warnings.append("실행 안 했는데 완료라고 답함 (report_execution_mismatch)")
     comparison = None
-    if execution != "-" and (not executed or judgment and judgment["verdict"] in ("no", "changed", "unclear")):
+    if execution != "-" and (turn.get("reply_claim_judgment") is not None or not executed or judgment and judgment["verdict"] in ("no", "changed", "unclear")):
         comparison = {"execution": "실행됨" if executed else "실행 안 됨", "reply": turn.get("reply", "")}
+        if "reply_claim_judgment" in turn:
+            comparison["reply_claim_judgment"] = clean(turn["reply_claim_judgment"])
     card = "표시됨(" + ", ".join(f"{c['proposal_id']} {c['tool']}" for c in cards) + ")" if cards else ("없음" if interrupt else "-")
     judgment_text = f"{judgment['label']}({judgment['verdict']})" if judgment else "-"
     return {"cards": cards, "card": card, "judgment": judgment, "judgment_text": judgment_text,
@@ -631,6 +636,9 @@ function renderComparison(parent, summary) {
   const block = add(parent, 'div', 'comparison');
   add(block, 'div', '', '실행 여부: ' + comparison.execution);
   add(block, 'pre', '', '봇 답장: ' + (comparison.reply || '(답변 없음)'));
+  if (comparison.reply_claim_judgment) {
+    table(block, {'답장 완료 주장 판정':comparison.reply_claim_judgment});
+  }
 }
 function renderScenarioSummary(parent, scenario) {
   const wrapper = add(parent, 'section', 'summary-scroll');

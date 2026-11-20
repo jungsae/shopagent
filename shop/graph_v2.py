@@ -29,7 +29,7 @@ from .agents import handoff
 from .graph import MAX_TRANSFER_BACK_PER_TURN
 from .grader import output_values, value_tokens
 from .shared import AGENTS
-from .tools import JUDGE_CONSENT, IRREVERSIBLE, NODE_POLICY_IDS, SCOPES, schemas
+from .tools import ACTION_LABELS, JUDGE_CONSENT, IRREVERSIBLE, NODE_POLICY_IDS, SCOPES, schemas
 
 
 MAX_MODEL_CALLS = 8
@@ -172,6 +172,14 @@ def validate_arguments(value, schema):
     Fail closed for unsupported types; never coerce model arguments or add defaults.
     """
     kind = schema["type"]
+    if isinstance(kind, list):
+        for alternative in kind:
+            try:
+                validate_arguments(value, {**schema, "type": alternative})
+                return
+            except ValueError:
+                pass
+        raise ValueError("argument does not match any allowed type")
     if kind == "object":
         if not isinstance(value, dict):
             raise ValueError("arguments must be an object")
@@ -191,10 +199,26 @@ def validate_arguments(value, schema):
             raise ValueError("argument must be an array")
         for item in value:
             validate_arguments(item, schema["items"])
+    elif kind == "null":
+        if value is not None:
+            raise ValueError("argument must be null")
     else:
         raise ValueError("unsupported schema type: " + kind)
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError("argument outside enum")
+
+
+class KoreanHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
+    def __init__(self, ctx, **kwargs):
+        super().__init__(**kwargs)
+        self.ctx = ctx
+
+    def _resolve_per_call(self, request):
+        result = super()._resolve_per_call(request)
+        if isinstance(result, ToolMessage) and result.status == "error":
+            return result.model_copy(update={"content": consent_resume_message(
+                "no", self.ctx.resume_decision["message"], request.tool_call)})
+        return result
 
 
 def make_tools(ctx, scope):
@@ -377,7 +401,7 @@ def build_agent(ctx, scope, agents, shop):
         ctx.event("proposed", pending)
         return text
 
-    gate = HumanInTheLoopMiddleware(
+    gate = KoreanHumanInTheLoopMiddleware(ctx,
         interrupt_mode="per_call",
         interrupt_on={name: {"allowed_decisions": ["approve", "reject", "respond"], "description": describe}
                       for name in SCOPES[scope] if name in IRREVERSIBLE})
@@ -568,10 +592,11 @@ class ScenarioGraph:
         if decision.get("type") not in ("approve", "reject", "respond"):
             raise ValueError("Expected approve/reject/respond")
         if decision["type"] == "reject" and "message" not in decision:
-            decision = {**decision, "message": consent_resume_decision("no", customer_text)["message"]}
+            decision = {**decision, "message": customer_text}
         if decision["type"] in ("reject", "respond") and not isinstance(decision.get("message"), str):
             raise ValueError("A rejection or response requires a message")
         ctx = _ctx or self._context(turn_index)
+        ctx.resume_decision = copy.deepcopy(decision)
         pending = copy.deepcopy(ctx.pending)
         ctx.resolving = pending
         ctx.customer_text = customer_text
@@ -638,5 +663,16 @@ def consent_resume_decision(verdict, customer_text):
     if verdict == "yes":
         return {"type": "approve"}
     if verdict in ("no", "changed"):
-        return {"type": "reject", "message": "고객이 승인하지 않아 실행하지 않았습니다. 고객 답변: " + customer_text}
-    return {"type": "respond", "message": "고객 답변이 불분명해 실행하지 않았습니다. 고객 답변: " + customer_text + "\n필요하면 다시 확인을 요청하세요."}
+        return {"type": "reject", "message": customer_text}
+    return {"type": "respond", "message": consent_resume_message(verdict, customer_text)}
+
+
+def consent_resume_message(verdict, customer_text, tool_call=None):
+    """One Korean result template for HITL and offline resume display."""
+    if verdict in ("no", "changed"):
+        name = tool_call["name"]
+        order_id = tool_call["args"].get("order_id", "미지정")
+        return (f"실행되지 않았습니다. 고객이 이 {ACTION_LABELS[name]}({name}, 주문 {order_id})을(를) 승인하지 않았습니다. "
+                f"완료되었다고 안내하지 마세요. 고객 답변: {customer_text}")
+    return ("실행되지 않았습니다. 고객 답변이 불분명합니다. 완료되었다고 안내하지 마세요. "
+            "필요하면 다시 확인을 요청하세요. 고객 답변: " + customer_text)
