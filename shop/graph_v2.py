@@ -208,7 +208,12 @@ def validate_arguments(value, schema):
         raise ValueError("argument outside enum")
 
 
-class KoreanHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
+class ConsentRejectMessageMiddleware(HumanInTheLoopMiddleware):
+    """거절 시 HITL 기본 영어 ToolMessage 대신 consent_resume_message 템플릿으로 바꾼다.
+
+    승인·애매(respond)·수정 결정과 ToolMessage의 name, tool_call_id, status는 그대로 둔다.
+    """
+
     def __init__(self, ctx, **kwargs):
         super().__init__(**kwargs)
         self.ctx = ctx
@@ -401,7 +406,7 @@ def build_agent(ctx, scope, agents, shop):
         ctx.event("proposed", pending)
         return text
 
-    gate = KoreanHumanInTheLoopMiddleware(ctx,
+    gate = ConsentRejectMessageMiddleware(ctx,
         interrupt_mode="per_call",
         interrupt_on={name: {"allowed_decisions": ["approve", "reject", "respond"], "description": describe}
                       for name in SCOPES[scope] if name in IRREVERSIBLE})

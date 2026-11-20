@@ -5063,7 +5063,7 @@ class KoreanRejectionTests(unittest.TestCase):
             self.assertEqual((result.content, result.status), (content, "success"))
 
     def test_override_passes_approve_edit_respond_results_through(self):
-        gate = graph_v2.KoreanHumanInTheLoopMiddleware(None, interrupt_on={}, interrupt_mode="per_call")
+        gate = graph_v2.ConsentRejectMessageMiddleware(None, interrupt_on={}, interrupt_mode="per_call")
         for result in ((object(), None), (object(), {"name": "cancel_order", "args": {"order_id": "O001"}}),
                        ToolMessage(content="응답 원문", tool_call_id="call", status="success")):
             with patch.object(graph_v2.HumanInTheLoopMiddleware, "_resolve_per_call", return_value=result):
