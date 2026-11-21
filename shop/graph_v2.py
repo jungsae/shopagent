@@ -211,7 +211,8 @@ def validate_arguments(value, schema):
 class ConsentRejectMessageMiddleware(HumanInTheLoopMiddleware):
     """거절 시 HITL 기본 영어 ToolMessage 대신 consent_resume_message 템플릿으로 바꾼다.
 
-    승인·애매(respond)·수정 결정과 ToolMessage의 name, tool_call_id, status는 그대로 둔다.
+    LangChain은 거절(reject)을 status="error", 애매(respond)를 status="success" ToolMessage로 만든다.
+    그래서 error만 바꾸고, 승인·수정·애매 결과와 name, tool_call_id, status는 그대로 둔다.
     """
 
     def __init__(self, ctx, **kwargs):

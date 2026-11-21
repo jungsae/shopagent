@@ -5070,6 +5070,26 @@ class KoreanRejectionTests(unittest.TestCase):
                 self.assertIs(gate._resolve_per_call(Mock()), result)
 
 
+    def test_unclear_respond_is_not_rewritten_as_reject(self):
+        from langchain.agents.middleware.human_in_the_loop import _answer_message
+        call = {"name": "cancel_order", "args": {"order_id": "O001"}, "id": "call"}
+        self.assertEqual(_answer_message(call, {"type": "respond", "message": "m"}).status, "success")
+        self.assertEqual(_answer_message(call, {"type": "reject", "message": "m"}).status, "error")
+        user = "잠시 생각해 볼게요."
+        for verdict_name, status in (("unclear", "success"), ("no", "error")):
+            with self.subTest(verdict=verdict_name):
+                agents = Agents(RecordingStub([routed("order_delivery"), proposal(), message("확인했습니다.")]), "C01")
+                app = graph_v2.ScenarioGraph(agents, Shop(BASE, "C01"))
+                first = app.run_turn(0, "O001 취소 요청")
+                decision = graph_v2.consent_resume_decision(verdict_name, user)
+                row = app.resume_turn(1, decision, user)
+                result = next(m for m in row["messages"] if isinstance(m, ToolMessage) and m.name == "cancel_order")
+                tool_call = {"name": "cancel_order", "args": first["pending"]["args"]}
+                expected = graph_v2.consent_resume_message(verdict_name, user, tool_call)
+                self.assertEqual((result.content, result.status), (expected, status))
+                self.assertEqual("승인하지 않았습니다" in result.content, verdict_name == "no")
+                self.assertEqual(app.shop.db, app.shop.initial)
+
 class ReplyClaimJudgeTests(unittest.TestCase):
     def test_runner_calls_judge_once_with_reply_and_labels_only_outside_budgets(self):
         from shop.tools import ACTION_LABELS, JUDGE_REPLY_CLAIM
