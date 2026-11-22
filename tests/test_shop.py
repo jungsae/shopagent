@@ -30,7 +30,7 @@ from shop.graph import build_graph, run_turn
 from shop.grader import confirmation, final_state, grade_scenario, grade_turn, matches, normalize_dates, reply_contains, value_tokens
 from shop.servers import CONFIGS, Monitor, make, mark_contention, resident
 from shop.shared import DATA_VERSION, ROOT, at, dm, leaves, load
-from shop.tools import CUSTOMER_RESPONSE, JUDGE_CONSENT, JUDGE_REPLY_CLAIM, IRREVERSIBLE, NODE_POLICY_IDS, SCOPES, Shop, schemas
+from shop.tools import CONFIRMATION_CARD_NOTE, CUSTOMER_RESPONSE, JUDGE_CONSENT, JUDGE_REPLY_CLAIM, IRREVERSIBLE, NODE_POLICY_IDS, PRODUCT_CATEGORIES, REASONS, SCOPES, Shop, schemas
 from shop.tracing import Tracing
 
 
@@ -375,6 +375,35 @@ class ToolsTests(unittest.TestCase):
         shop = Shop(BASE, "C01")
         self.assertIn("error", shop.invoke("cancel_order", {}, 0))
         self.assertIn("error", shop.invoke("not_a_tool", {}, 0))
+
+    def test_v1_tool_schemas_stay_fixed_baseline(self):
+        fingerprint = hashlib.sha256(json.dumps({agent: schemas(agent) for agent in SCOPES}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(fingerprint, "43c410edae8e73dcdefc4dd158bf1c16845143e87a2d7cc27f56771d10eb2bff")
+
+    def test_v2_tool_schemas_describe_every_tool_and_argument(self):
+        for agent in SCOPES:
+            for schema in schemas(agent, v2=True):
+                spec = schema["function"]
+                with self.subTest(tool=spec["name"]):
+                    self.assertNotIn("Mock 쇼핑몰 도구", spec["description"])
+                    self.assertNotIn("직전 사용자 턴", spec["description"])
+                    self.assertGreater(len(spec["description"]), len(spec["name"]) + 20)
+                    self.assertEqual(spec["description"].endswith(CONFIRMATION_CARD_NOTE), spec["name"] in IRREVERSIBLE)
+                    for key, argument in spec["parameters"]["properties"].items():
+                        self.assertTrue(argument.get("description"), key)
+                    v1 = next(s for s in schemas(agent) if s["function"]["name"] == spec["name"])["function"]["parameters"]
+                    self.assertEqual((list(spec["parameters"]["properties"]), spec["parameters"]["required"]), (list(v1["properties"]), v1["required"]))
+
+    def test_v2_tool_enums_match_mock_db_values(self):
+        tools = {s["function"]["name"]: s["function"]["parameters"]["properties"] for agent in SCOPES for s in schemas(agent, v2=True)}
+        for name in ("check_refund_eligibility", "request_refund", "request_exchange"):
+            self.assertEqual(tools[name]["reason"]["enum"], list(REASONS))
+        self.assertNotIn("enum", tools["escalate_to_human"]["reason"])
+        self.assertEqual(tools["get_policy"]["policy_id"]["enum"], list(BASE["policies"]))
+        self.assertEqual(set(tools["search_products"]["category"]["enum"]), {p["category"] for p in BASE["products"].values()})
+        self.assertEqual(set(PRODUCT_CATEGORIES), {p["category"] for p in BASE["products"].values()})
+        self.assertEqual(tools["cancel_items"]["item_ids"]["type"], "array")
+        self.assertEqual(tools["request_refund"]["item_ids"]["type"], "array")
 
     def test_escalation_trace_snapshots_list_changes(self):
         shop = Shop(BASE, "C01")
@@ -1277,7 +1306,7 @@ class GraphV2Tests(unittest.TestCase):
             with self.subTest(scope=scope):
                 ctx = graph_v2.Turn(Agents(Stub([]), "C01"), Shop(BASE, "C01"), 0, None, None, False)
                 tools = graph_v2.make_tools(ctx, scope)
-                self.assertEqual([convert_to_openai_tool(tool) for tool in tools], schemas(scope) + [handoff("transfer_back_to_router")])
+                self.assertEqual([convert_to_openai_tool(tool) for tool in tools], schemas(scope, v2=True) + [handoff("transfer_back_to_router")])
 
     def test_route_tool_loop_matches_v1_and_keeps_result_keys(self):
         def responses():

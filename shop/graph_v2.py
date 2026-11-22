@@ -248,7 +248,7 @@ def make_tools(ctx, scope):
                 return json.dumps(output, ensure_ascii=False)
         return run
 
-    tools = [tool(schema, domain(schema["function"]["name"])) for schema in schemas(scope)]
+    tools = [tool(schema, domain(schema["function"]["name"])) for schema in schemas(scope, v2=True)]
     return tools + [tool(handoff("transfer_back_to_router"), lambda **arguments: "")]
 
 
