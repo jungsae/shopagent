@@ -1,1 +1,0 @@
-"""Deterministic shopping-agent experiment."""

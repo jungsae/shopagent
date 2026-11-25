@@ -33,7 +33,8 @@ def parse_args(argv=None):
     parser.add_argument("--attempts", type=int, default=1, help="Sequential attempts per scenario in the same run folder (at least 1)")
     parser.add_argument("--gemma-ngl", type=int)
     parser.add_argument("--name", "--tag", dest="name", help="New folder name under runs/; --tag remains a smoke-compatible alias")
-    parser.add_argument("--graph", choices=("v1", "v2"), default="v1", help="v1: original graph. v2: create_agent + interrupt/resume (shop/graph_v2.py), its own score table")
+    parser.add_argument("--graph", choices=("v1", "v2"), default="v2",
+                        help="v2 (default): create_agent with interrupt/resume. Use --graph v1 for the original graph.")
     parser.add_argument("--assist", choices=("on", "off"), help="v2 only. on: keep the receipt lookup retry and ungrounded-value rewrite as a reference run. off (default): official score without them")
     parser.add_argument("--port", type=int, default=18380)
     parser.add_argument("--load-timeout", type=int, default=300)

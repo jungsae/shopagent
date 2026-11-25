@@ -13,17 +13,16 @@ from unittest.mock import Mock, patch
 
 import httpx
 
-import chat_view
-import compare_consent_judge_omni_vs_gemma as consent_compare
-import compare_supervisor_omni_vs_gemma as supervisor_compare
-import rescore
 import run as runner
-import summarize as summary
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from scripts import chat_view, rescore
+from scripts import summarize as summary
+from scripts.legacy import compare_consent_judge_omni_vs_gemma as consent_compare
+from scripts.legacy import compare_supervisor_omni_vs_gemma as supervisor_compare
 from shop import graph_v2
 from shop.agents import Agents, LocalLLM, handoff
 from shop.graph import build_graph, run_turn
@@ -1999,7 +1998,7 @@ class InterruptConsentTests(unittest.TestCase):
         self.assertEqual(grade_turn(scenario, 0, {**row, "calls": [real]}, self.shop.initial, [], [])["hallucinated_values"], [])
 
     def test_regenerated_scenarios_match_builder_and_have_verdicts(self):
-        import build_data
+        from scripts import build_data
         self.assertEqual(build_data.scenarios(BASE), DATA["scenarios"])
         self.assertEqual(DATA_VERSION, "2026-11-20-korean-reject-false-completion")
         for scenario in DATA["scenarios"]:
@@ -2562,7 +2561,7 @@ class AllowedOutcomesAndRoutesTests(unittest.TestCase):
             with self.subTest(decision=row["action_decision"]):
                 saved = {"id": self.scenario["id"], "turns": [row]}
                 events = [{"event": "turn_end", "result": row}, {"event": "db_diff", "changes": {}}]
-                with patch("rescore.trace_path") as path:
+                with patch.object(rescore, "trace_path") as path:
                     path.return_value.read_text.return_value = "\n".join(json.dumps(e, ensure_ascii=False) for e in events)
                     restored = rescore.restore_shop(Path("unused"), saved, self.scenario, BASE)
                 self.assertEqual(grade_scenario(self.scenario, saved["turns"], restored), old_grade)
@@ -3610,7 +3609,7 @@ class RescoreTests(unittest.TestCase):
             def changed(*args):
                 path.write_text(path.read_text() + "\n")
                 return original(*args)
-            with patch("rescore.restore_shop", side_effect=changed), self.assertRaisesRegex(ValueError, "Source files changed"):
+            with patch.object(rescore, "restore_shop", side_effect=changed), self.assertRaisesRegex(ValueError, "Source files changed"):
                 rescore.v2_report([folder])
 
     def test_offline_clears_keys_and_blocks_network_processes_and_credentials(self):
@@ -4476,7 +4475,7 @@ class RunnerTests(unittest.TestCase):
         for value in ("0", "-1", "not-an-integer"):
             with self.subTest(value=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 runner.parse_args(["--full", "--attempts", value])
-        runner.execute(runner.parse_args(["--tag", "single-attempt-schema", "--attempts", "1"]))
+        runner.execute(runner.parse_args(["--graph", "v1", "--tag", "single-attempt-schema", "--attempts", "1"]))
         result = self.result("single-attempt-schema")
         self.assertNotIn("attempts", result)
         for row in result["scenarios"]:
@@ -4579,7 +4578,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual((smoke.config, smoke.gemma_ngl, smoke.name), ("g12-native", 99, "smoke-test"))
         for config, ngl in (("g12-native", 99), ("clef-g12", 16), ("pplx-g12", 4), ("jev-g12", 0)):
             args = runner.parse_args(["--full", "--config", config, "--repeat", "3"])
-            self.assertEqual((args.gemma_ngl, args.name), (ngl, config + "-r3"))
+            self.assertEqual((args.gemma_ngl, args.name), (ngl, config + "-graph2-r3"))
         reference = runner.parse_args(["--full", "--gemma-ngl", "0", "--name", "g12-native-ngl0-r1"])
         self.assertEqual((reference.gemma_ngl, reference.name), (0, "g12-native-ngl0-r1"))
 
@@ -4587,7 +4586,7 @@ class RunnerTests(unittest.TestCase):
         args = runner.parse_args(["--config", "solar-pro4", "--name", "solar-smoke"])
         self.assertEqual((args.config, args.gemma_ngl, args.name), ("solar-pro4", None, "solar-smoke"))
         full = runner.parse_args(["--config", "solar-pro4", "--full"])
-        self.assertEqual(full.name, "solar-pro4-r1")
+        self.assertEqual(full.name, "solar-pro4-graph2-r1")
         for flags in ([], ["--name", "../escape"], ["--name", "solar-smoke", "--gemma-ngl", "0"]):
             with self.subTest(flags=flags), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 runner.parse_args(["--config", "solar-pro4", *flags])
@@ -4612,7 +4611,7 @@ class RunnerTests(unittest.TestCase):
                      "shop.servers.dm.make_server")
         with patch.dict(os.environ, {"UPSTAGE_API_KEY": "test-key"}, clear=True), ExitStack() as stack:
             checks = [stack.enter_context(patch(target, side_effect=AssertionError(target))) for target in forbidden]
-            self.assertEqual(runner.execute(runner.parse_args(["--config", "solar-pro4", "--name", "solar-smoke"])), 0)
+            self.assertEqual(runner.execute(runner.parse_args(["--graph", "v1", "--config", "solar-pro4", "--name", "solar-smoke"])), 0)
             for check in checks:
                 check.assert_not_called()
         result = self.result("solar-smoke")
@@ -4659,14 +4658,14 @@ class RunnerTests(unittest.TestCase):
                 runner.parse_args(arguments)
 
     def test_graph_and_assist_flags(self):
-        v1 = runner.parse_args(["--full"])
+        v1 = runner.parse_args(["--full", "--graph", "v1"])
         self.assertEqual((v1.graph, v1.assist, v1.name), ("v1", None, "g12-native-r1"))
-        official = runner.parse_args(["--full", "--graph", "v2"])
-        self.assertEqual((official.assist, official.name), ("off", "g12-native-graph2-r1"))
+        official = runner.parse_args(["--full"])
+        self.assertEqual((official.graph, official.assist, official.name), ("v2", "off", "g12-native-graph2-r1"))
         reference = runner.parse_args(["--full", "--graph", "v2", "--assist", "on", "--repeat", "2"])
         self.assertEqual((reference.assist, reference.name), ("on", "g12-native-graph2-assist-r2"))
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            runner.parse_args(["--full", "--assist", "on"])
+            runner.parse_args(["--full", "--graph", "v1", "--assist", "on"])
 
     def test_v2_run_records_graph_and_assist_and_leaves_v1_runs_unmarked(self):
         calls = []
@@ -4689,12 +4688,12 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(next(r["result"]["limit_reached_on"] for r in records if r["event"] == "turn_end"), ["tool_count", "model_call_count"])
             self.assertEqual(self.turn.call_count, 0)
             self.assertEqual(set(calls), {False, True})
-        self.assertEqual(runner.execute(runner.parse_args(["--full"])), 0)
+        self.assertEqual(runner.execute(runner.parse_args(["--full", "--graph", "v1"])), 0)
         self.assertNotIn("graph", self.result("g12-native-r1"))
         self.assertNotIn("assist", self.result("g12-native-r1"))
 
     def test_refuses_existing_folder_before_tracing_or_preflight(self):
-        folder = self.root / "runs" / "g12-native-r1"
+        folder = self.root / "runs" / "g12-native-graph2-r1"
         folder.mkdir(parents=True)
         marker = folder / "results.json"
         marker.write_text("keep")
@@ -4706,7 +4705,7 @@ class RunnerTests(unittest.TestCase):
         self.resident.assert_not_called()
 
     def test_full_selects_all_and_loads_only_once(self):
-        args = runner.parse_args(["--full", "--config", "jev-g12", "--repeat", "2"])
+        args = runner.parse_args(["--full", "--graph", "v1", "--config", "jev-g12", "--repeat", "2"])
         self.assertEqual(runner.execute(args), 0)
         result = self.result("jev-g12-r2")
         self.assertEqual(len(result["scenarios"]), 67)
@@ -4725,7 +4724,7 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(all(s["latency_comparable"] for s in result["scenarios"]))
 
     def test_smoke_selection_and_reference_label(self):
-        self.assertEqual(runner.execute(runner.parse_args(["--tag", "reference", "--gemma-ngl", "0"])), 0)
+        self.assertEqual(runner.execute(runner.parse_args(["--graph", "v1", "--tag", "reference", "--gemma-ngl", "0"])), 0)
         result = self.result("reference")
         self.assertEqual([s["id"] for s in result["scenarios"]], DATA["smoke_ids"])
         self.assertEqual(result["repeat_index"], 0)
@@ -4748,7 +4747,7 @@ class RunnerTests(unittest.TestCase):
     def test_load_failure_unloads_and_preserves_error(self):
         with patch("run.LocalLLM", side_effect=RuntimeError("client initialization failed")):
             self.assertEqual(runner.execute(runner.parse_args(["--full", "--config", "clef-g12"])), 1)
-        result = self.result("clef-g12-r1")
+        result = self.result("clef-g12-graph2-r1")
         self.assertEqual(result["status"], "failed")
         self.assertIn("client initialization failed", result["errors"][0])
         self.assertEqual(self.events, [("load", "clef-g12", 16), ("unload", "clef-g12", 16)])
@@ -4756,15 +4755,15 @@ class RunnerTests(unittest.TestCase):
     def test_preflight_block_keeps_reason_and_never_loads(self):
         self.preflight.return_value = self.checks, ["GPU busy (>3072 MiB)", "Outside GPU compute processes"]
         self.assertEqual(runner.execute(runner.parse_args(["--full"])), 1)
-        result = self.result("g12-native-r1")
+        result = self.result("g12-native-graph2-r1")
         self.assertEqual(result["status"], "blocked")
         self.assertIn("Outside GPU compute processes", result["errors"][0])
         self.resident.assert_not_called()
-        self.assertTrue((self.root / "runs/g12-native-r1/server-preflight.log").is_file())
+        self.assertTrue((self.root / "runs/g12-native-graph2-r1/server-preflight.log").is_file())
 
     def test_contention_continues_and_keeps_accuracy(self):
         self.memory["gpu"][0]["used_mib"] = 11265
-        self.assertEqual(runner.execute(runner.parse_args(["--full"])), 0)
+        self.assertEqual(runner.execute(runner.parse_args(["--full", "--graph", "v1"])), 0)
         result = self.result("g12-native-r1")
         self.assertEqual(len([s for s in result["scenarios"] if "grade" in s]), 67)
         self.assertTrue(all(s["contended"] and not s["latency_comparable"] for s in result["scenarios"]))
@@ -4783,7 +4782,7 @@ class RunnerTests(unittest.TestCase):
             return self.fake_turn(*args, **kwargs)
 
         self.turn.side_effect = interrupted
-        self.assertEqual(runner.execute(runner.parse_args(["--full"])), 1)
+        self.assertEqual(runner.execute(runner.parse_args(["--full", "--graph", "v1"])), 1)
         result = self.result("g12-native-r1")
         self.assertEqual(result["status"], "interrupted")
         self.assertEqual(result["scenarios"][1]["turns"][0]["status"], "interrupted")
@@ -4794,7 +4793,7 @@ class RunnerTests(unittest.TestCase):
         error = RuntimeError("broken stream")
         error.shop_state = {"routes": ["product"], "llm_calls": [{"node": "supervisor", "total_ms": 10}]}
         self.turn.side_effect = [error] + [self.fake_turn(None, None, 0, "", [])] * 3
-        self.assertEqual(runner.execute(runner.parse_args(["--tag", "failure"])), 1)
+        self.assertEqual(runner.execute(runner.parse_args(["--graph", "v1", "--tag", "failure"])), 1)
         result = self.result("failure")
         self.assertEqual(result["scenarios"][0]["turns"][0]["routes"], ["product"])
         self.assertEqual(result["scenarios"][0]["turns"][0]["error"], "RuntimeError: broken stream")
@@ -4804,7 +4803,7 @@ class RunnerTests(unittest.TestCase):
     def test_real_graph_jsonl_has_requests_nodes_tools_diff_and_timing(self):
         self.turn.side_effect = run_turn
         self.llm.call.side_effect = lambda messages, tools, node: (routed("product") if node == "supervisor" else message("30000원") if messages[-1].type == "tool" and messages[-1].content.startswith("{") else message("", ("get_product", {"product_id": "S01"})), {"node": node, "total_ms": 10, "ttft_ms": 2, "content_ttft_ms": 2})
-        runner.execute(runner.parse_args(["--tag", "trace-test"]))
+        runner.execute(runner.parse_args(["--graph", "v1", "--tag", "trace-test"]))
         result = self.result("trace-test")
         path = Path(result["scenarios"][0]["trace_path"])
         events = [json.loads(line) for line in path.read_text().splitlines()]
@@ -4850,7 +4849,7 @@ class RunnerTests(unittest.TestCase):
             (routed("product"), {"node": "supervisor", "total_ms": 10}),
             RuntimeError("broken stream"),
         ] * 3
-        self.assertEqual(runner.execute(runner.parse_args(["--tag", "stream-error"])), 1)
+        self.assertEqual(runner.execute(runner.parse_args(["--graph", "v1", "--tag", "stream-error"])), 1)
         turn = self.result("stream-error")["scenarios"][0]["turns"][0]
         self.assertEqual(turn["routes"], ["product"])
         self.assertEqual(turn["latency"]["judge"]["total_ms"], 10)
