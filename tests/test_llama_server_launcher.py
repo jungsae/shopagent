@@ -26,7 +26,7 @@ class PresetTests(unittest.TestCase):
             str(Path.home() / "models/gemma-4-12b-it-Q4_K_M.gguf"),
             "--jinja", "-ngl", "99", "-ctk", "q8_0", "-ctv", "q8_0", "-fa", "on",
             "-np", "1", "-c", "16384", "--host", "127.0.0.1", "--port", "18380",
-            "--n-cpu-moe", "0", "--chat-template-kwargs", '{"enable_thinking": false}',
+            "--n-cpu-moe", "0", "--reasoning", "off",
             "--reasoning-budget", "0",
         ])
 
@@ -38,9 +38,9 @@ class PresetTests(unittest.TestCase):
         ):
             with self.subTest(overrides=overrides):
                 command, _, _ = launcher.build_command(self.presets, "g12-native", overrides)
-                self.assertEqual(json.loads(command[command.index("--chat-template-kwargs") + 1]),
-                                 {"enable_thinking": enabled})
+                self.assertEqual(command[command.index("--reasoning") + 1], "on" if enabled else "off")
                 self.assertEqual(command[command.index("--reasoning-budget") + 1], budget)
+                self.assertNotIn("--chat-template-kwargs", command)
 
     def test_local_decision_presets(self):
         for name, label, ctx, cache in (

@@ -125,7 +125,7 @@ def build_command(presets, name, overrides):
         str(LLAMA_SERVER), "-m", model, "--jinja", "-ngl", str(ngl),
         "-ctk", ctk, "-ctv", ctv, "-fa", flash, "-np", str(np), "-c", str(ctx),
         "--host", host, "--port", str(port), "--n-cpu-moe", str(preset["n_cpu_moe"]),
-        "--chat-template-kwargs", json.dumps({"enable_thinking": thinking}),
+        "--reasoning", "on" if thinking else "off",
         "--reasoning-budget", str(budget),
     ]
     # Match the decision-model request modes used by shop.servers.make.
