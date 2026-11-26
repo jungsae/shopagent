@@ -38,6 +38,7 @@ shopagent/
 ├── notebooks/
 ├── scripts/
 │   ├── chat_view.py
+│   ├── llama_server_launcher.py
 │   ├── summarize.py
 │   ├── rescore.py
 │   ├── build_data.py
@@ -84,6 +85,18 @@ uv pip sync --python .venv/bin/python requirements.lock.txt
 .venv/bin/python scripts/chat_view.py
 ```
 
+### WSL 로컬 llama-server 런처
+
+WSL의 저장소 루트에서 아래 명령을 실행한 뒤 Windows 브라우저에서 `http://127.0.0.1:8765`를 엽니다. 런처는 `127.0.0.1`에서만 접속을 받습니다. `--port`로 런처 웹 포트를 바꾸면 브라우저 주소에도 같은 포트를 사용하세요.
+
+```sh
+.venv/bin/python scripts/llama_server_launcher.py
+```
+
+Gemma를 사용하는 노트북은 `18380` 포트의 `/health`에서 서버 상태를 확인합니다. 노트북을 실행하기 전에 런처에서 `g12-native`를 선택하고 **서버 시작**을 누른 뒤 **응답 준비 완료**가 뜰 때까지 기다리세요. **서버 중지**는 현재 런처에서 시작한 서버에 적용됩니다.
+
+기본 실행 파일은 `~/llama.cpp/build/bin/llama-server`에, 모델은 `~/models/`에 둡니다. 설치 위치가 다르면 모델 경로는 화면에서, 실행 파일 경로는 런처의 `LLAMA_SERVER` 상수에서 바꿀 수 있습니다. 로컬 설정 목록은 `shop/servers.py`에서 읽습니다. Clef, pplx, Omni 설정은 각각 판단 모델 하나를 실행하며, Solar Pro 4는 원격 API이므로 실행 목록에서 제외됩니다. [런처 소스](scripts/llama_server_launcher.py) · [모델 설정](shop/servers.py)
+
 ## 벤치마크 결과
 
 ### 현재 v2 공식 HITL 결과
@@ -129,6 +142,5 @@ uv pip sync --python .venv/bin/python requirements.lock.txt
 ## 다음 작업
 
 - 동의 확인 단계가 요청을 받은 턴에 뜨도록 고치고, 반품 접수부터 수거 예약까지 이어지는 흐름을 다시 검증합니다. [동의 시점 분석](docs/consent-timing-analysis.md)
-- 로컬 `llama-server` 실행에 필요한 설정과 서버 관리를 런처로 묶습니다.
 - 추론 모드를 켠 Gemma(`thinking-on`)로 도구 호출과 동의 시점을 검증합니다.
 - 추가 그래프 변경은 [`shop/graph_v2.py`](shop/graph_v2.py)에서 진행합니다. [`shop/graph.py`](shop/graph.py)는 고정된 비교 기준입니다.

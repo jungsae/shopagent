@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>llama-server 런처</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #111820; color: #ebeff4; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 900px; margin: auto; padding: 28px 20px 48px; }
+    h1 { margin: 0 0 20px; font-size: 1.75rem; }
+    h2, legend { font-size: 1.1rem; font-weight: 650; margin: 0 0 8px; }
+    section, fieldset { min-width: 0; margin: 0 0 18px; padding: 16px; border: 1px solid #374554; border-radius: 8px; }
+    legend { padding: 0 6px; }
+    .fields, .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px 16px; }
+    .wide { grid-column: 1 / -1; }
+    label { display: grid; gap: 5px; }
+    input, select, button { font: inherit; color: inherit; background: #1b2732; border: 1px solid #526172; border-radius: 5px; padding: 8px 10px; }
+    input, select { width: 100%; min-width: 0; }
+    :focus-visible { outline: 2px solid #69d6bf; outline-offset: 2px; }
+    button:enabled { cursor: pointer; }
+    button:disabled, input:disabled { opacity: .6; }
+    #start:enabled { background: #81dec6; color: #13221f; border-color: #81dec6; font-weight: 650; }
+    .actions { display: flex; gap: 8px; }
+    p { margin: 5px 0 0; }
+    .muted { color: #b4c0cd; }
+    .error { color: #ffbaae; }
+    pre { background: #0c1219; padding: 12px; margin: 0; border-radius: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    #log { max-height: 320px; overflow: auto; }
+    ul { margin: 5px 0 0; padding-left: 22px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>llama-server 런처</h1>
+  <form id="settings">
+    <fieldset>
+      <legend>서버 설정</legend>
+      <div class="fields">
+        <label class="wide">기본 설정 선택 <select id="preset" aria-describedby="preset-help"></select></label>
+        <p class="wide muted" id="preset-help"></p>
+        <label class="wide">GGUF 모델 파일 경로 <input name="model" autocomplete="off" required></label>
+        <label>컨텍스트 길이 (토큰) <input name="ctx" type="number" min="0" required></label>
+        <label>동시 처리 수 (np) <input name="np" type="number" min="1" required></label>
+        <label>GPU에 올릴 레이어 수 (ngl) <input name="ngl" type="number" min="0" required></label>
+        <label>서버 주소 <input name="host" autocomplete="off" required></label>
+        <label>서버 포트 <input name="port" type="number" min="1" max="65535" required></label>
+        <label>Flash Attention <select name="flash_attn"></select></label>
+        <label>KV 캐시 K 형식 (ctk) <select name="ctk"></select></label>
+        <label>KV 캐시 V 형식 (ctv) <select name="ctv"></select></label>
+        <label>추론 사용 <select name="thinking"><option value="false">끄기</option><option value="true">켜기</option></select></label>
+        <label>추론 토큰 한도 (-1은 무제한) <input name="reasoning_budget" type="number" min="-1" required></label>
+      </div>
+    </fieldset>
+    <section aria-labelledby="command-title">
+      <h2 id="command-title">실행 명령 미리 보기</h2>
+      <pre id="command">설정을 불러오는 중…</pre>
+    </section>
+    <div class="actions">
+      <button id="start" type="submit" disabled>서버 시작</button>
+      <button id="stop" type="button" disabled>서버 중지</button>
+    </div>
+    <p id="message" role="status"></p>
+  </form>
+  <section class="status" aria-label="실행 상태" style="margin-top: 18px">
+    <div><h2>런처에서 실행한 서버</h2><p id="process">확인 중…</p></div>
+    <div><h2>선택한 서버의 상태</h2><p id="health">확인 중…</p></div>
+    <div><h2>GPU 메모리 (VRAM)</h2><div id="gpu">확인 중…</div></div>
+  </section>
+  <section aria-labelledby="log-title">
+    <h2 id="log-title">최근 서버 로그</h2>
+    <pre id="log" tabindex="0">표시할 로그가 없습니다.</pre>
+  </section>
+</main>
+<script>
+  const byId = id => document.getElementById(id);
+  const form = byId('settings');
+  const presetSelect = byId('preset');
+  const fields = [...form.querySelectorAll('[name]')];
+  const budget = form.elements.reasoning_budget;
+  const command = byId('command');
+  let presets, previewTimer, prepared, active = false, busy = false;
+  let previewVersion = 0, statusVersion = 0;
+
+  async function api(path, data) {
+    const options = data === undefined ? {} : {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    };
+    let response;
+    try {
+      response = await fetch(path, options);
+    } catch {
+      throw new Error('런처에 연결할 수 없습니다.');
+    }
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    return result;
+  }
+
+  function options() {
+    const values = Object.fromEntries(fields.map(field => [field.name, field.value]));
+    values.thinking = values.thinking === 'true';
+    return {preset: presetSelect.value, options: values};
+  }
+
+  function buttons() {
+    byId('start').disabled = !prepared || active || busy;
+    byId('stop').disabled = !active || busy;
+  }
+
+  function edit() {
+    const version = ++previewVersion;
+    const data = options();
+    prepared = null;
+    buttons();
+    window.clearTimeout(previewTimer);
+    command.textContent = '명령을 확인하는 중…';
+    previewTimer = window.setTimeout(async () => {
+      try {
+        const result = await api('/api/preview', data);
+        if (version !== previewVersion) return;
+        command.textContent = result.command;
+        prepared = data;
+        buttons();
+      } catch (error) {
+        if (version === previewVersion) command.textContent = error.message;
+      }
+    }, 120);
+  }
+
+  function selectPreset() {
+    const preset = presets[presetSelect.value];
+    for (const field of fields) field.value = preset.defaults[field.name];
+    budget.disabled = form.elements.thinking.value === 'false';
+    byId('preset-help').textContent = preset.paired ? '이 설정의 판단 모델을 서버 하나로 실행합니다.' : '';
+    edit();
+  }
+
+  async function refreshStatus() {
+    const version = ++statusVersion;
+    const {host, port} = options().options;
+    try {
+      const result = await api('/api/status?' + new URLSearchParams({host, port}));
+      if (version !== statusVersion || host !== form.elements.host.value || port !== form.elements.port.value) return;
+      active = result.pid !== null;
+      byId('process').textContent = active
+        ? `실행 중 · ${result.endpoint.join(':')} · PID ${result.pid}`
+        : result.exit_code !== null && result.exit_code !== 0
+          ? `종료됨 (종료 코드 ${result.exit_code})` : '실행 중인 서버 없음';
+      byId('health').textContent = `${host}:${port} · ${result.health}`;
+      const gpu = byId('gpu');
+      gpu.textContent = result.gpu_error || '';
+      if (result.gpu.length) {
+        const list = document.createElement('ul');
+        for (const row of result.gpu) {
+          const item = document.createElement('li');
+          item.textContent = `GPU ${row.index} · ${row.used_mib} / ${row.total_mib} MiB`;
+          list.append(item);
+        }
+        gpu.append(list);
+      }
+      const log = byId('log');
+      const tail = result.log || '표시할 로그가 없습니다.';
+      if (log.textContent !== tail) {
+        const atEnd = log.scrollHeight - log.clientHeight - log.scrollTop < 8;
+        log.textContent = tail;
+        if (atEnd) log.scrollTop = log.scrollHeight;
+      }
+      buttons();
+    } catch (error) {
+      if (version === statusVersion) byId('health').textContent = error.message;
+    }
+  }
+
+  async function act(action) {
+    if (busy) return;
+    busy = true;
+    buttons();
+    const message = byId('message');
+    message.classList.remove('error');
+    message.textContent = action === 'start' ? '서버를 시작하는 중…' : '서버를 중지하는 중…';
+    try {
+      const result = await api('/api/' + action, action === 'start' ? prepared : {});
+      active = action === 'start';
+      message.textContent = active ? `서버를 시작했습니다 (PID ${result.pid}).`
+        : result.stopped ? '서버를 중지했습니다.' : '이 런처에서 실행 중인 서버가 없습니다.';
+    } catch (error) {
+      message.classList.add('error');
+      message.textContent = error.message;
+    } finally {
+      await refreshStatus();
+      busy = false;
+      buttons();
+    }
+  }
+
+  async function init() {
+    const data = await api('/api/presets');
+    presets = data.presets;
+    for (const [name, preset] of Object.entries(presets)) {
+      presetSelect.add(new Option(`${preset.label} (${name})`, name));
+    }
+    for (const name of ['ctk', 'ctv']) {
+      for (const type of data.cache_types) form.elements[name].add(new Option(type, type));
+    }
+    const flashLabels = {on: '켜기', off: '끄기', auto: '자동'};
+    for (const value of data.flash_options) form.elements.flash_attn.add(new Option(flashLabels[value], value));
+    presetSelect.value = data.default;
+    presetSelect.addEventListener('change', selectPreset);
+    form.addEventListener('input', event => {
+      if (event.target === presetSelect) return;
+      if (event.target.name === 'thinking') {
+        budget.disabled = event.target.value === 'false';
+        budget.value = budget.disabled ? 0 : -1;
+      }
+      edit();
+    });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (!byId('start').disabled) act('start');
+    });
+    byId('stop').addEventListener('click', () => act('stop'));
+    selectPreset();
+    async function poll() {
+      await refreshStatus();
+      window.setTimeout(poll, 2500);
+    }
+    poll();
+  }
+
+  init().catch(error => { command.textContent = error.message; });
+</script>
+</body>
+</html>
